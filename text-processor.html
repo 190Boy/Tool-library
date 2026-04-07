@@ -19,8 +19,6 @@
         .checkbox-group input { width: 18px; height: 18px; cursor: pointer; }
         
         input[type="text"] { flex: 1; min-width: 250px; padding: 10px; border-radius: 6px; border: 1px solid #555; background-color: #2a2a2a; color: #fff; font-family: inherit; font-size: 0.9rem; }
-        
-        /* 🌟 輸入區也加入 tab-size 設定，讓你在網頁上看的時候對齊得更漂亮 */
         textarea { width: 100%; min-height: 150px; resize: vertical; box-sizing: border-box; line-height: 1.6; padding: 15px; border-radius: 6px; border: 1px solid #555; background-color: #2a2a2a; color: #fff; font-family: inherit; font-size: 1rem; tab-size: 4; }
         textarea:focus { outline: none; border-color: #f6d365; }
         
@@ -31,23 +29,19 @@
         .btn-success { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: #121212; }
         .btn-excel { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #121212; }
         .btn-load { background: #444; color: #fff; padding: 10px 15px; font-size: 0.9rem; }
-        
         .btn-edit { background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%); color: #fff; padding: 10px 15px; font-size: 0.9rem; text-decoration: none; border-radius: 6px; font-weight: bold; transition: 0.2s; display: inline-block; text-align: center; }
         .btn-edit:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(155, 89, 182, 0.3); }
         
-        /* 🌟 核心魔法：white-space 屬性會強制保留所有 Tab (\t) 和空白！ */
-        .output-panel { 
-            background-color: #ffffff; color: #000000; padding: 20px; border-radius: 8px; min-height: 150px; line-height: 1.6; 
-            font-size: 1rem; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-y: auto; max-height: 400px; border: 2px solid #555; 
-            white-space: pre-wrap; 
-            tab-size: 4; 
-        }
+        /* 輸出區樣式微調：加入隱形表格的基礎設定 */
+        .output-panel { background-color: #ffffff; color: #000000; padding: 20px; border-radius: 8px; min-height: 150px; font-size: 1rem; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-y: auto; max-height: 400px; border: 2px solid #555; }
+        
+        /* 讓網頁預覽的表格有微微的虛線，方便你肉眼對齊，但複製到 Excel 時不會有框線 */
+        #outputHtml table { width: 100%; border-collapse: collapse; }
+        #outputHtml td { padding: 4px 10px; border: 1px dashed #ddd; vertical-align: top; white-space: pre-wrap; word-break: break-all; }
         
         .status-msg { font-size: 1em; font-weight: bold; }
-        
         #diagnosticReport { background-color: #2a0000; color: #ff8888; border: 1px dashed #ff4444; padding: 10px 15px; border-radius: 6px; font-size: 0.9em; display: none; line-height: 1.6; }
         #diagnosticReport ul { margin: 5px 0 0 0; padding-left: 20px; }
-
         input[type="file"]::file-selector-button { padding: 8px 16px; border-radius: 4px; border: none; background-color: #444; color: white; cursor: pointer; font-weight: bold; }
     </style>
 </head>
@@ -91,14 +85,14 @@
 
         <hr style="width: 100%; border-color: #333;">
 
-        <h3 style="margin: 0; color: #f6d365;">📝 純文字快速處理</h3>
-        <div><textarea id="sourceText" placeholder="請在此貼上需要被天使淨化的原始文字 (支援保留 Tab 鍵排版)..."></textarea></div>
+        <h3 style="margin: 0; color: #f6d365;">📝 純文字快速處理 (支援 Excel 欄位複製)</h3>
+        <div><textarea id="sourceText" placeholder="請直接從 Excel 複製多個欄位貼到這裡..."></textarea></div>
         <div style="text-align: center;"><button onclick="processText()">✨ 開始淨化文字</button></div>
         <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <h3 style="margin: 0; color: #f6d365;">預覽區：</h3>
-            <button class="btn-success" onclick="copyRichText()">📋 複製格式結果 (貼至原文件)</button>
+            <button class="btn-success" onclick="copyRichText()">📋 複製格式結果 (完美貼回 Excel)</button>
         </div>
-        <div id="outputHtml" class="output-panel">處理後的結果將保留換行、Tab 與顏色，並顯示於此...</div>
+        <div id="outputHtml" class="output-panel">處理後的結果會轉換為「隱形表格」，確保貼回 Excel 時欄位不會跑掉...</div>
     </div>
 
     <script>
@@ -107,10 +101,8 @@
         let searchRegex = null;
 
         window.onload = async function() {
-            const statusLabel = document.getElementById('dictStatus');
             const s2tStatus = document.getElementById('s2tStatus');
             const urlInput = document.getElementById('csvUrlInput');
-            
             urlInput.value = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfuEzU_l8vOO-cbC_mQHBPEc9vpeOSqw4S5mv2D5xAJ2heBohMgr7aOzchLy8e6A/pub?gid=900428424&single=true&output=csv";
 
             try {
@@ -147,7 +139,6 @@
             
             reportDiv.style.display = "none";
             reportDiv.innerHTML = "";
-
             if (!url) return;
             statusLabel.innerText = "⏳ 連線中...";
             statusLabel.style.color = "#f6d365";
@@ -155,11 +146,9 @@
             try {
                 const response = await fetch(url);
                 const csvData = await response.text();
-                
                 const lines = csvData.split(/\r?\n/).filter(line => line.trim() !== "");
                 replaceDict = {};
                 let originalCount = 0; 
-                
                 let seenKeys = new Set();
                 let duplicateWarnings = [];
                 let invalidWarnings = [];
@@ -187,16 +176,12 @@
                     
                     if (converterS2T) {
                         let tradKey = converterS2T(originalKey);
-                        if (tradKey !== originalKey) {
-                            replaceDict[tradKey] = replaceValue;
-                        }
+                        if (tradKey !== originalKey) replaceDict[tradKey] = replaceValue;
                     }
                 }
 
                 const sortedWords = Object.keys(replaceDict).sort((a, b) => b.length - a.length);
-                if (sortedWords.length > 0) {
-                    searchRegex = new RegExp(sortedWords.map(escapeRegExp).join('|'), 'g');
-                }
+                if (sortedWords.length > 0) searchRegex = new RegExp(sortedWords.map(escapeRegExp).join('|'), 'g');
 
                 statusLabel.innerText = `✅ 同步成功！(有效資料共 ${originalCount} 筆)`;
                 statusLabel.style.color = "#a8ff78";
@@ -209,10 +194,8 @@
                     reportHtml += "</ul>";
                     reportDiv.innerHTML = reportHtml;
                 }
-
             } catch (error) {
-                statusLabel.innerText = "❌ 載入失敗";
-                statusLabel.style.color = "#ff4444";
+                statusLabel.innerText = "❌ 載入失敗"; statusLabel.style.color = "#ff4444";
             }
         }
 
@@ -224,20 +207,37 @@
 
             if (!text.trim()) { outputDiv.innerHTML = "<span style='color:red;'>請先貼上文字！</span>"; return; }
 
+            // Step 1: 簡轉繁
             if (useS2T && converterS2T) text = converterS2T(text);
             
-            // 安全性跳脫
+            // Step 2: HTML 安全跳脫
             text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+            // Step 3: 紅字字典取代
             if (useDict && searchRegex) {
                 text = text.replace(searchRegex, (matchedStr) => {
                     return `<span style="color: #ff0000; font-weight: bold;">${replaceDict[matchedStr]}</span>`;
                 });
             }
             
-            // 🌟 這裡移除了「將換行變成 <br>」的程式碼
-            // 因為 CSS 設定了 pre-wrap，網頁現在看得懂原始的換行與 Tab 了！
-            outputDiv.innerHTML = text;
+            // 🌟 終極魔法：將 Tab (\t) 和換行 (\n) 轉換為 HTML 表格！
+            let htmlTable = '<table style="border-collapse: collapse; border: none; width: 100%;">';
+            let rows = text.split('\n');
+            for (let row of rows) {
+                htmlTable += '<tr>';
+                let cells = row.split('\t');
+                for (let cell of cells) {
+                    // 如果儲存格完全沒東西，補個 <br> 撐起高度
+                    let cellContent = cell === "" ? "<br>" : cell;
+                    // mso-number-format: '\@'; 是給 Excel 看的暗號，強制將內容視為「純文字」
+                    htmlTable += `<td style="border: none; white-space: pre-wrap; mso-number-format: '\\@';">${cellContent}</td>`;
+                }
+                htmlTable += '</tr>';
+            }
+            htmlTable += '</table>';
+            
+            // 輸出至預覽區
+            outputDiv.innerHTML = htmlTable;
         }
 
         function copyRichText() {
@@ -249,11 +249,12 @@
             selection.addRange(range);
             try { 
                 document.execCommand('copy'); 
-                alert("✅ 複製成功！你的 Tab 排版已經完美保留，快去貼上看看吧！"); 
+                alert("✅ 複製成功！隱形表格已存入剪貼簿，現在貼到 Excel 每個字都會乖乖待在自己的欄位裡囉！"); 
             } catch (err) { alert("❌ 複製失敗"); }
             selection.removeAllRanges();
         }
 
+        // --- 無損 Excel 處理模組 ---
         async function processExcel() {
             const fileInput = document.getElementById('excelFile');
             const statusBox = document.getElementById('excelStatus');
