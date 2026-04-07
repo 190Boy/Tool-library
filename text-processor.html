@@ -7,46 +7,22 @@
     <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #121212;
-            color: #e0e0e0;
-            margin: 0;
-            padding: 30px 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 30px 20px; display: flex; flex-direction: column; align-items: center; }
         h1 { color: #f6d365; margin-bottom: 20px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); letter-spacing: 1px; }
         .container { width: 100%; max-width: 1000px; display: flex; flex-direction: column; gap: 20px; }
         
-        .settings-panel, .excel-panel {
-            background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #333;
-            display: flex; flex-direction: column; gap: 15px;
-        }
+        .settings-panel, .excel-panel { background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #333; display: flex; flex-direction: column; gap: 15px; }
         .excel-panel { border-color: #4facfe; position: relative; overflow: hidden; }
 
         .settings-row { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
         .checkbox-group { display: flex; align-items: center; gap: 8px; font-size: 1.1em; cursor: pointer; }
         .checkbox-group input { width: 18px; height: 18px; cursor: pointer; }
         
-        input[type="text"] {
-            flex: 1; min-width: 300px; padding: 10px; border-radius: 6px; border: 1px solid #555;
-            background-color: #2a2a2a; color: #fff; font-family: inherit; font-size: 0.9rem;
-        }
-        
-        textarea { 
-            width: 100%; min-height: 150px; resize: vertical; box-sizing: border-box; line-height: 1.6;
-            padding: 15px; border-radius: 6px; border: 1px solid #555;
-            background-color: #2a2a2a; color: #fff; font-family: inherit; font-size: 1rem;
-        }
+        input[type="text"] { flex: 1; min-width: 300px; padding: 10px; border-radius: 6px; border: 1px solid #555; background-color: #2a2a2a; color: #fff; font-family: inherit; font-size: 0.9rem; }
+        textarea { width: 100%; min-height: 150px; resize: vertical; box-sizing: border-box; line-height: 1.6; padding: 15px; border-radius: 6px; border: 1px solid #555; background-color: #2a2a2a; color: #fff; font-family: inherit; font-size: 1rem; }
         textarea:focus { outline: none; border-color: #f6d365; }
         
-        button {
-            background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); color: #121212;
-            border: none; padding: 12px 25px; border-radius: 6px; font-size: 1.1rem; font-weight: bold;
-            cursor: pointer; transition: 0.2s;
-        }
+        button { background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); color: #121212; border: none; padding: 12px 25px; border-radius: 6px; font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: 0.2s; }
         button:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(246, 211, 101, 0.3); }
         button:active { transform: translateY(0); }
         
@@ -54,37 +30,28 @@
         .btn-excel { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #121212; }
         .btn-load { background: #444; color: #fff; padding: 10px 15px; font-size: 0.9rem; }
         
-        .output-panel {
-            background-color: #ffffff; color: #000000; 
-            padding: 20px; border-radius: 8px; min-height: 150px; line-height: 1.6;
-            font-size: 1rem; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            overflow-y: auto; max-height: 400px; border: 2px solid #555;
-        }
+        .output-panel { background-color: #ffffff; color: #000000; padding: 20px; border-radius: 8px; min-height: 150px; line-height: 1.6; font-size: 1rem; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-y: auto; max-height: 400px; border: 2px solid #555; }
         .status-msg { font-size: 1em; font-weight: bold; }
         
-        input[type="file"]::file-selector-button {
-            padding: 8px 16px; border-radius: 4px; border: none; background-color: #444; color: white; cursor: pointer; font-weight: bold;
-        }
+        /* 🕵️ 偵探報告區塊樣式 */
+        #diagnosticReport { background-color: #2a0000; color: #ff8888; border: 1px dashed #ff4444; padding: 10px 15px; border-radius: 6px; font-size: 0.9em; display: none; line-height: 1.6; }
+        #diagnosticReport ul { margin: 5px 0 0 0; padding-left: 20px; }
+
+        input[type="file"]::file-selector-button { padding: 8px 16px; border-radius: 4px; border: none; background-color: #444; color: white; cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h1>👼 天使文本處理器</h1>
+    <h1>👼 天使文本處理器 (偵探除錯版)</h1>
 
     <div class="container">
         <div class="settings-panel">
             <h3 style="margin: 0; color: #aaa;">⚙️ 處理規則設定</h3>
             <div class="settings-row">
-                <label class="checkbox-group">
-                    <input type="checkbox" id="chkS2T" checked>
-                    1️⃣ 執行：簡體轉繁體 <span id="s2tStatus" style="font-size: 0.8em; color:#a8ff78;"></span>
-                </label>
+                <label class="checkbox-group"><input type="checkbox" id="chkS2T" checked> 1️⃣ 執行：簡體轉繁體 <span id="s2tStatus" style="font-size: 0.8em; color:#a8ff78;"></span></label>
             </div>
             <div class="settings-row">
-                <label class="checkbox-group">
-                    <input type="checkbox" id="chkDict" checked>
-                    2️⃣ 執行：自動套用雲端字庫 (替換字將標示紅字)
-                </label>
+                <label class="checkbox-group"><input type="checkbox" id="chkDict" checked> 2️⃣ 執行：自動套用雲端字庫 (替換字將標示紅字)</label>
             </div>
             <div class="settings-row" style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
                 <span>🔗 雲端字庫 CSV 網址：</span>
@@ -95,6 +62,8 @@
                 <span>📚 雲端字庫狀態：</span>
                 <span id="dictStatus" class="status-msg">等待連線...</span>
             </div>
+            
+            <div id="diagnosticReport"></div>
         </div>
 
         <div class="excel-panel">
@@ -109,12 +78,8 @@
         <hr style="width: 100%; border-color: #333;">
 
         <h3 style="margin: 0; color: #f6d365;">📝 純文字快速處理</h3>
-        <div>
-            <textarea id="sourceText" placeholder="請在此貼上需要被天使淨化的原始文字..."></textarea>
-        </div>
-        <div style="text-align: center;">
-            <button onclick="processText()">✨ 開始淨化文字</button>
-        </div>
+        <div><textarea id="sourceText" placeholder="請在此貼上需要被天使淨化的原始文字..."></textarea></div>
+        <div style="text-align: center;"><button onclick="processText()">✨ 開始淨化文字</button></div>
         <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <h3 style="margin: 0; color: #f6d365;">預覽區：</h3>
             <button class="btn-success" onclick="copyRichText()">📋 複製格式結果 (貼至原文件)</button>
@@ -132,7 +97,6 @@
             const s2tStatus = document.getElementById('s2tStatus');
             const urlInput = document.getElementById('csvUrlInput');
             
-            // 💡 直接將你最新提供的網址設為絕對優先！
             urlInput.value = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfuEzU_l8vOO-cbC_mQHBPEc9vpeOSqw4S5mv2D5xAJ2heBohMgr7aOzchLy8e6A/pub?gid=900428424&single=true&output=csv";
 
             try {
@@ -164,20 +128,13 @@
 
         async function loadDictionary() {
             const statusLabel = document.getElementById('dictStatus');
+            const reportDiv = document.getElementById('diagnosticReport');
             const url = document.getElementById('csvUrlInput').value.trim();
             
-            if (!url) {
-                statusLabel.innerText = "⚠️ 請輸入字庫網址！";
-                statusLabel.style.color = "#ff4444";
-                return;
-            }
+            reportDiv.style.display = "none";
+            reportDiv.innerHTML = "";
 
-            if (url.includes("/edit?usp=sharing")) {
-                statusLabel.innerText = "❌ 網址錯誤！請回到試算表點選「檔案 > 共用 > 發佈到網路」，並選擇「CSV」格式。";
-                statusLabel.style.color = "#ff4444";
-                return;
-            }
-
+            if (!url) return;
             statusLabel.innerText = "⏳ 連線中...";
             statusLabel.style.color = "#f6d365";
 
@@ -185,31 +142,42 @@
                 const response = await fetch(url);
                 const csvData = await response.text();
                 
-                // 成功載入後，更新記憶
-                localStorage.setItem('angelDictUrl', url);
-
                 const lines = csvData.split(/\r?\n/).filter(line => line.trim() !== "");
                 replaceDict = {};
                 let originalCount = 0; 
+                
+                // 🕵️ 偵探紀錄器
+                let seenKeys = new Set();
+                let duplicateWarnings = [];
+                let invalidWarnings = [];
 
+                // i=1 代表跳過第一行標題，所以實際處理行數是 i+1
                 for (let i = 1; i < lines.length; i++) {
                     const row = parseCSVRow(lines[i]);
-                    if (row.length >= 2 && row[0].trim() !== "" && row[1].trim() !== "") {
-                        let originalKey = row[0].trim();
-                        let replaceValue = row[1].trim();
-                        
-                        if (!replaceDict[originalKey]) {
-                            originalCount++;
-                        }
+                    const actualRowNum = i + 1; // 在 Excel 裡對應的行號
 
-                        replaceDict[originalKey] = replaceValue;
-                        
-                        // 雙語免疫分身
-                        if (converterS2T) {
-                            let tradKey = converterS2T(originalKey);
-                            if (tradKey !== originalKey) {
-                                replaceDict[tradKey] = replaceValue;
-                            }
+                    if (row.length < 2 || row[0].trim() === "" || row[1].trim() === "") {
+                        invalidWarnings.push(`第 ${actualRowNum} 行：缺少 A 欄或 B 欄資料`);
+                        continue;
+                    }
+
+                    let originalKey = row[0].trim();
+                    let replaceValue = row[1].trim();
+                    
+                    if (seenKeys.has(originalKey)) {
+                        // 抓到重複的字！
+                        duplicateWarnings.push(`第 ${actualRowNum} 行：搜尋字「${originalKey}」與前面的資料重複了`);
+                    } else {
+                        seenKeys.add(originalKey);
+                        originalCount++;
+                    }
+
+                    replaceDict[originalKey] = replaceValue;
+                    
+                    if (converterS2T) {
+                        let tradKey = converterS2T(originalKey);
+                        if (tradKey !== originalKey) {
+                            replaceDict[tradKey] = replaceValue;
                         }
                     }
                 }
@@ -219,14 +187,28 @@
                     searchRegex = new RegExp(sortedWords.map(escapeRegExp).join('|'), 'g');
                 }
 
-                statusLabel.innerText = `✅ 同步成功！(字庫表共 ${originalCount} 筆規則)`;
+                statusLabel.innerText = `✅ 同步成功！(有效資料共 ${originalCount} 筆)`;
                 statusLabel.style.color = "#a8ff78";
+
+                // 🕵️ 顯示偵探報告
+                if (duplicateWarnings.length > 0 || invalidWarnings.length > 0) {
+                    reportDiv.style.display = "block";
+                    let reportHtml = `<strong>🕵️ 系統診斷報告 (共找到 ${duplicateWarnings.length + invalidWarnings.length} 個問題)：</strong><br>這代表您的 Excel 表單第 1 行是標題，共有 ${lines.length - 1} 行資料。<br>扣掉以下問題後，正好是 ${originalCount} 筆！<ul>`;
+                    
+                    duplicateWarnings.forEach(msg => reportHtml += `<li>⚠️ ${msg}</li>`);
+                    invalidWarnings.forEach(msg => reportHtml += `<li>❌ ${msg}</li>`);
+                    
+                    reportHtml += "</ul>";
+                    reportDiv.innerHTML = reportHtml;
+                }
+
             } catch (error) {
-                statusLabel.innerText = "❌ 雲端字庫載入失敗，請確認網址是否為發佈的 CSV。";
+                statusLabel.innerText = "❌ 載入失敗";
                 statusLabel.style.color = "#ff4444";
             }
         }
 
+        // --- 以下為原本的純文字處理與 Excel 處理代碼 ---
         function processText() {
             let text = document.getElementById('sourceText').value;
             const useS2T = document.getElementById('chkS2T').checked;
@@ -254,10 +236,7 @@
             range.selectNodeContents(outputDiv);
             selection.removeAllRanges();
             selection.addRange(range);
-            try {
-                document.execCommand('copy');
-                alert("✅ 複製成功！帶有紅字格式的文字已經存入剪貼簿！");
-            } catch (err) { alert("❌ 複製失敗"); }
+            try { document.execCommand('copy'); alert("✅ 複製成功！"); } catch (err) { alert("❌ 複製失敗"); }
             selection.removeAllRanges();
         }
 
@@ -267,88 +246,52 @@
             const useS2T = document.getElementById('chkS2T').checked;
             const useDict = document.getElementById('chkDict').checked;
 
-            if (fileInput.files.length === 0) {
-                statusBox.innerText = "⚠️ 請先選擇一個 xlsx 檔案！";
-                statusBox.style.color = "#ff4444";
-                return;
-            }
-
-            statusBox.innerText = "⏳ 正在啟動天使引擎讀取檔案...";
-            statusBox.style.color = "#f6d365";
+            if (fileInput.files.length === 0) return;
+            statusBox.innerText = "⏳ 正在啟動天使引擎讀取檔案..."; statusBox.style.color = "#f6d365";
 
             try {
                 const file = fileInput.files[0];
                 const arrayBuffer = await file.arrayBuffer();
-                
                 const workbook = new ExcelJS.Workbook();
                 await workbook.xlsx.load(arrayBuffer);
 
-                workbook.eachSheet((worksheet, sheetId) => {
-                    worksheet.eachRow((row, rowNumber) => {
-                        row.eachCell((cell, colNumber) => {
+                workbook.eachSheet((worksheet) => {
+                    worksheet.eachRow((row) => {
+                        row.eachCell((cell) => {
                             if (cell.type === ExcelJS.ValueType.String) {
                                 let originalText = cell.value;
                                 let processed = false;
-                                
-                                if (useS2T && converterS2T) {
-                                    originalText = converterS2T(originalText);
-                                }
+                                if (useS2T && converterS2T) originalText = converterS2T(originalText);
 
                                 if (useDict && searchRegex) {
                                     let fragments = [];
                                     let lastIndex = 0;
                                     let localRegex = new RegExp(searchRegex.source, 'g');
                                     let match;
-
                                     while ((match = localRegex.exec(originalText)) !== null) {
                                         processed = true;
-                                        if (match.index > lastIndex) {
-                                            fragments.push({ text: originalText.substring(lastIndex, match.index) });
-                                        }
-                                        fragments.push({ 
-                                            text: replaceDict[match[0]], 
-                                            font: { color: { argb: 'FFFF0000' }, bold: true } 
-                                        });
+                                        if (match.index > lastIndex) fragments.push({ text: originalText.substring(lastIndex, match.index) });
+                                        fragments.push({ text: replaceDict[match[0]], font: { color: { argb: 'FFFF0000' }, bold: true } });
                                         lastIndex = localRegex.lastIndex;
                                     }
-
-                                    if (lastIndex < originalText.length) {
-                                        fragments.push({ text: originalText.substring(lastIndex) });
-                                    }
-
-                                    if (processed) {
-                                        cell.value = { richText: fragments };
-                                    } else {
-                                        cell.value = originalText;
-                                    }
-                                } else {
-                                    cell.value = originalText;
-                                }
+                                    if (lastIndex < originalText.length) fragments.push({ text: originalText.substring(lastIndex) });
+                                    if (processed) cell.value = { richText: fragments };
+                                    else cell.value = originalText;
+                                } else { cell.value = originalText; }
                             }
                         });
                     });
                 });
 
-                statusBox.innerText = "⏳ 處理完成，正在打包下載...";
-
                 const buffer = await workbook.xlsx.writeBuffer();
                 const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
                 const downloadUrl = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
-                a.href = downloadUrl;
-                a.download = "天使淨化版_" + file.name;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                window.URL.revokeObjectURL(downloadUrl);
-
-                statusBox.innerText = "✅ 轉換成功！請查看下載資料夾。";
-                statusBox.style.color = "#a8ff78";
-
+                a.href = downloadUrl; a.download = "天使淨化版_" + file.name;
+                document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(downloadUrl);
+                statusBox.innerText = "✅ 轉換成功！"; statusBox.style.color = "#a8ff78";
             } catch (error) {
-                console.error(error);
-                statusBox.innerText = "❌ 處理 Excel 發生錯誤，請確認檔案格式是否正確。";
-                statusBox.style.color = "#ff4444";
+                statusBox.innerText = "❌ 處理發生錯誤"; statusBox.style.color = "#ff4444";
             }
         }
     </script>
