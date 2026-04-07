@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天使文本處理器 - 繁簡轉換與紅字取代</title>
+    <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 30px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        /* 天使風格標題 */
+        h1 { color: #f6d365; margin-bottom: 20px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); letter-spacing: 1px; }
+        .container { width: 100%; max-width: 1000px; display: flex; flex-direction: column; gap: 20px; }
+        
+        /* 設定區塊 */
+        .settings-panel {
+            background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #333;
+            display: flex; flex-direction: column; gap: 15px;
+        }
+        .settings-row { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
+        .checkbox-group { display: flex; align-items: center; gap: 8px; font-size: 1.1em; cursor: pointer; }
+        .checkbox-group input { width: 18px; height: 18px; cursor: pointer; }
+        
+        textarea { 
+            width: 100%; min-height: 200px; resize: vertical; box-sizing: border-box; line-height: 1.6;
+            padding: 15px; border-radius: 6px; border: 1px solid #555;
+            background-color: #2a2a2a; color: #fff; font-family: inherit; font-size: 1rem;
+        }
+        textarea:focus { outline: none; border-color: #f6d365; }
+        
+        /* 天使風格按鈕 */
+        button {
+            background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); color: #121212;
+            border: none; padding: 12px 25px; border-radius: 6px; font-size: 1.1rem; font-weight: bold;
+            cursor: pointer; transition: 0.2s;
+        }
+        button:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(246, 211, 101, 0.3); }
+        button:active { transform: translateY(0); }
+        
+        .btn-success { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: #121212; }
+        
+        /* 輸出結果區塊 (背景設為白色以模擬文件) */
+        .output-panel {
+            background-color: #ffffff; color: #000000; 
+            padding: 20px; border-radius: 8px; min-height: 200px; line-height: 1.6;
+            font-size: 1rem; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow-y: auto; max-height: 500px; border: 2px solid #555;
+        }
+        .status-msg { font-size: 1em; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>👼 天使文本處理器</h1>
+
+    <div class="container">
+        <div class="settings-panel">
+            <div class="settings-row">
+                <label class="checkbox-group">
+                    <input type="checkbox" id="chkS2T" checked>
+                    1️⃣ 執行：簡體轉繁體
+                </label>
+            </div>
+            <div class="settings-row">
+                <label class="checkbox-group">
+                    <input type="checkbox" id="chkDict" checked>
+                    2️⃣ 執行：自動套用雲端字庫 (紅字標示)
+                </label>
+            </div>
+            <div class="settings-row">
+                <span>📚 雲端字庫連線狀態：</span>
+                <span id="dictStatus" class="status-msg">等待連線...</span>
+            </div>
+        </div>
+
+        <div>
+            <textarea id="sourceText" placeholder="請在此貼上需要被天使淨化的原始文字..."></textarea>
+        </div>
+
+        <div style="text-align: center;">
+            <button onclick="processText()">✨ 開始淨化文字</button>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+            <h3 style="margin: 0; color: #f6d365;">📝 處理結果預覽：</h3>
+            <button class="btn-success" onclick="copyRichText()">📋 複製格式結果 (貼至原文件)</button>
+        </div>
+        <div id="outputHtml" class="output-panel">處理後的結果將保留換行與顏色，並顯示於此...</div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🌟 專屬固定字庫網址 🌟
+        // ==========================================
+        const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfuEzU_l8vOO-cbC_mQHBPEc9vpeOSqw4S5mv2D5xAJ2heBohMgr7aOzchLy8e6A/pub?gid=900428424&single=true&output=csv";
+
+        // 初始化 OpenCC
+        const converterS2T = OpenCC.Converter({ from: 'cn', to: 'tw' });
+        
+        // 儲存字庫的變數
+        let replaceDict = {};
+        let searchRegex = null;
+
+        // 網頁載入時，自動抓取字庫
+        window.onload = function() {
+            loadDictionary();
+        };
+
+        // CSV 解析大腦
+        function parseCSVRow(str) {
+            let result = [], cell = '', inQuotes = false;
+            for (let i = 0; i < str.length; i++) {
+                let char = str[i];
+                if (char === '"' && str[i+1] === '"') { cell += '"'; i++; } 
+                else if (char === '"') { inQuotes = !inQuotes; } 
+                else if (char === ',' && !inQuotes) { result.push(cell); cell = ''; } 
+                else { cell += char; }
+            }
+            result.push(cell);
+            return result.map(c => c.trim());
+        }
+
+        // 跳脫正規表達式的特殊符號
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // 自動載入字庫表邏輯
+        async function loadDictionary() {
+            const statusLabel = document.getElementById('dictStatus');
+            statusLabel.innerText = "⏳ 正在與天使字庫同步中...";
+            statusLabel.style.color = "#f6d365";
+
+            try {
+                const response = await fetch(csvUrl);
+                const csvData = await response.
