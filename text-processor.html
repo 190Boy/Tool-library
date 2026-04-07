@@ -25,14 +25,15 @@
             display: flex; flex-direction: column; gap: 15px;
         }
         .excel-panel { border-color: #4facfe; position: relative; overflow: hidden; }
-        .excel-panel::before {
-            content: '新功能'; position: absolute; top: 10px; right: -25px; background: #e74c3c;
-            color: white; padding: 5px 30px; font-size: 0.8em; font-weight: bold; transform: rotate(45deg);
-        }
 
         .settings-row { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
         .checkbox-group { display: flex; align-items: center; gap: 8px; font-size: 1.1em; cursor: pointer; }
         .checkbox-group input { width: 18px; height: 18px; cursor: pointer; }
+        
+        input[type="text"] {
+            flex: 1; min-width: 300px; padding: 10px; border-radius: 6px; border: 1px solid #555;
+            background-color: #2a2a2a; color: #fff; font-family: inherit; font-size: 0.9rem;
+        }
         
         textarea { 
             width: 100%; min-height: 150px; resize: vertical; box-sizing: border-box; line-height: 1.6;
@@ -51,6 +52,7 @@
         
         .btn-success { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: #121212; }
         .btn-excel { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: #121212; }
+        .btn-load { background: #444; color: #fff; padding: 10px 15px; font-size: 0.9rem; }
         
         .output-panel {
             background-color: #ffffff; color: #000000; 
@@ -67,7 +69,7 @@
 </head>
 <body>
 
-    <h1>👼 天使文本處理器 V3.0</h1>
+    <h1>👼 天使文本處理器</h1>
 
     <div class="container">
         <div class="settings-panel">
@@ -84,15 +86,19 @@
                     2️⃣ 執行：自動套用雲端字庫 (替換字將標示紅字)
                 </label>
             </div>
+            <div class="settings-row" style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                <span>🔗 雲端字庫 CSV 網址：</span>
+                <input type="text" id="csvUrlInput" placeholder="請貼上「發佈到網路」的 CSV 網址...">
+                <button class="btn-load" onclick="loadDictionary()">🔄 手動重新連線</button>
+            </div>
             <div class="settings-row">
                 <span>📚 雲端字庫狀態：</span>
-                <span id="dictStatus" class="status-msg">初始化中...</span>
+                <span id="dictStatus" class="status-msg">等待連線...</span>
             </div>
         </div>
 
         <div class="excel-panel">
             <h3 style="margin: 0; color: #4facfe;">📊 無損 Excel (xlsx) 批次處理</h3>
-            <p style="margin: 0; font-size: 0.9em; color: #bbb;">上傳 Excel 檔案，天使會保持所有框線、顏色、數字不變，僅針對文字進行轉換並將替換詞改為紅色。</p>
             <div class="settings-row" style="margin-top: 10px;">
                 <input type="file" id="excelFile" accept=".xlsx">
                 <button class="btn-excel" onclick="processExcel()">🚀 轉換並下載 Excel</button>
@@ -117,11 +123,6 @@
     </div>
 
     <script>
-        // ==========================================
-        // 初始化與雲端連線設定
-        // ==========================================
-        const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfuEzU_l8vOO-cbC_mQHBPEc9vpeOSqw4S5mv2D5xAJ2heBohMgr7aOzchLy8e6A/pub?gid=900428424&single=true&output=csv";
-
         let converterS2T = null;
         let replaceDict = {};
         let searchRegex = null;
@@ -129,7 +130,10 @@
         window.onload = async function() {
             const statusLabel = document.getElementById('dictStatus');
             const s2tStatus = document.getElementById('s2tStatus');
-            statusLabel.innerText = "⏳ 啟動中...";
+            const urlInput = document.getElementById('csvUrlInput');
+            
+            // 💡 直接將你最新提供的網址設為絕對優先！
+            urlInput.value = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfuEzU_l8vOO-cbC_mQHBPEc9vpeOSqw4S5mv2D5xAJ2heBohMgr7aOzchLy8e6A/pub?gid=900428424&single=true&output=csv";
 
             try {
                 if (typeof OpenCC !== 'undefined') {
@@ -138,7 +142,7 @@
                 }
             } catch (e) { console.error(e); }
 
-            await loadDictionary(statusLabel);
+            await loadDictionary();
         };
 
         function parseCSVRow(str) {
@@ -158,12 +162,35 @@
             return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
 
-        async function loadDictionary(statusLabel) {
+        async function loadDictionary() {
+            const statusLabel = document.getElementById('dictStatus');
+            const url = document.getElementById('csvUrlInput').value.trim();
+            
+            if (!url) {
+                statusLabel.innerText = "⚠️ 請輸入字庫網址！";
+                statusLabel.style.color = "#ff4444";
+                return;
+            }
+
+            if (url.includes("/edit?usp=sharing")) {
+                statusLabel.innerText = "❌ 網址錯誤！請回到試算表點選「檔案 > 共用 > 發佈到網路」，並選擇「CSV」格式。";
+                statusLabel.style.color = "#ff4444";
+                return;
+            }
+
+            statusLabel.innerText = "⏳ 連線中...";
+            statusLabel.style.color = "#f6d365";
+
             try {
-                const response = await fetch(csvUrl);
+                const response = await fetch(url);
                 const csvData = await response.text();
+                
+                // 成功載入後，更新記憶
+                localStorage.setItem('angelDictUrl', url);
+
                 const lines = csvData.split(/\r?\n/).filter(line => line.trim() !== "");
                 replaceDict = {};
+                let originalCount = 0; 
 
                 for (let i = 1; i < lines.length; i++) {
                     const row = parseCSVRow(lines[i]);
@@ -171,10 +198,13 @@
                         let originalKey = row[0].trim();
                         let replaceValue = row[1].trim();
                         
-                        // 寫入原始字詞
+                        if (!replaceDict[originalKey]) {
+                            originalCount++;
+                        }
+
                         replaceDict[originalKey] = replaceValue;
                         
-                        // 💡 雙語免疫機制：強制把搜尋字也轉成繁體存一份，解決 S2T 後抓不到的問題
+                        // 雙語免疫分身
                         if (converterS2T) {
                             let tradKey = converterS2T(originalKey);
                             if (tradKey !== originalKey) {
@@ -189,17 +219,14 @@
                     searchRegex = new RegExp(sortedWords.map(escapeRegExp).join('|'), 'g');
                 }
 
-                statusLabel.innerText = `✅ 同步成功！(共 ${sortedWords.length} 筆雙語規則)`;
+                statusLabel.innerText = `✅ 同步成功！(字庫表共 ${originalCount} 筆規則)`;
                 statusLabel.style.color = "#a8ff78";
             } catch (error) {
-                statusLabel.innerText = "❌ 雲端字庫載入失敗";
+                statusLabel.innerText = "❌ 雲端字庫載入失敗，請確認網址是否為發佈的 CSV。";
                 statusLabel.style.color = "#ff4444";
             }
         }
 
-        // ==========================================
-        // 模式一：純文字處理邏輯
-        // ==========================================
         function processText() {
             let text = document.getElementById('sourceText').value;
             const useS2T = document.getElementById('chkS2T').checked;
@@ -234,9 +261,6 @@
             selection.removeAllRanges();
         }
 
-        // ==========================================
-        // 模式二：Excel (xlsx) 無損處理邏輯
-        // ==========================================
         async function processExcel() {
             const fileInput = document.getElementById('excelFile');
             const statusBox = document.getElementById('excelStatus');
@@ -256,25 +280,20 @@
                 const file = fileInput.files[0];
                 const arrayBuffer = await file.arrayBuffer();
                 
-                // 載入活頁簿
                 const workbook = new ExcelJS.Workbook();
                 await workbook.xlsx.load(arrayBuffer);
 
-                // 掃描所有工作表
                 workbook.eachSheet((worksheet, sheetId) => {
                     worksheet.eachRow((row, rowNumber) => {
                         row.eachCell((cell, colNumber) => {
-                            // 只處理純文字的儲存格 (跳過公式、數字、日期)
                             if (cell.type === ExcelJS.ValueType.String) {
                                 let originalText = cell.value;
                                 let processed = false;
                                 
-                                // 1. 簡轉繁
                                 if (useS2T && converterS2T) {
                                     originalText = converterS2T(originalText);
                                 }
 
-                                // 2. 字庫取代與紅色富文本 (Rich Text) 構建
                                 if (useDict && searchRegex) {
                                     let fragments = [];
                                     let lastIndex = 0;
@@ -283,11 +302,9 @@
 
                                     while ((match = localRegex.exec(originalText)) !== null) {
                                         processed = true;
-                                        // 匹配詞之前的文字 (維持原樣)
                                         if (match.index > lastIndex) {
                                             fragments.push({ text: originalText.substring(lastIndex, match.index) });
                                         }
-                                        // 匹配詞本身 (套用紅色粗體)
                                         fragments.push({ 
                                             text: replaceDict[match[0]], 
                                             font: { color: { argb: 'FFFF0000' }, bold: true } 
@@ -295,19 +312,16 @@
                                         lastIndex = localRegex.lastIndex;
                                     }
 
-                                    // 剩餘的文字
                                     if (lastIndex < originalText.length) {
                                         fragments.push({ text: originalText.substring(lastIndex) });
                                     }
 
-                                    // 如果有替換，將原本的純字串覆寫為 Excel 支援的 RichText 格式
                                     if (processed) {
                                         cell.value = { richText: fragments };
                                     } else {
-                                        cell.value = originalText; // 如果只有轉繁體沒觸發字庫，就存回純字串
+                                        cell.value = originalText;
                                     }
                                 } else {
-                                    // 若沒勾選字庫，僅存回簡轉繁的結果
                                     cell.value = originalText;
                                 }
                             }
@@ -317,7 +331,6 @@
 
                 statusBox.innerText = "⏳ 處理完成，正在打包下載...";
 
-                // 輸出並觸發下載
                 const buffer = await workbook.xlsx.writeBuffer();
                 const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
                 const downloadUrl = window.URL.createObjectURL(blob);
