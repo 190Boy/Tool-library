@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>天使文本處理器 V3.4 - 繁簡轉換與紅字取代</title>
+    <title>天使文本處理器 V4.0 - 品質控管與防護版</title>
     <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <style>
@@ -32,8 +32,11 @@
         .btn-edit { background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%); color: #fff; padding: 10px 15px; font-size: 0.9rem; text-decoration: none; border-radius: 6px; font-weight: bold; transition: 0.2s; display: inline-block; text-align: center; }
         .btn-edit:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(155, 89, 182, 0.3); }
         
+        /* 📊 QC 面板樣式 */
+        .qc-panel { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); border: 1px solid #4facfe; padding: 15px 20px; border-radius: 8px; display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .qc-highlight { color: #f6d365; font-weight: bold; font-size: 1.2em; margin: 0 5px; }
+
         .output-panel { background-color: #ffffff; color: #000000; padding: 20px; border-radius: 8px; min-height: 150px; font-size: 1rem; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow-y: auto; max-height: 400px; border: 2px solid #555; }
-        
         #outputHtml table { width: 100%; border-collapse: collapse; }
         #outputHtml td { padding: 4px 10px; border: 1px dashed #ddd; vertical-align: top; white-space: pre-wrap; word-break: break-all; }
         
@@ -45,7 +48,7 @@
 </head>
 <body>
 
-    <h1>👼 天使文本處理器 V3.4</h1>
+    <h1>👼 天使文本處理器 V4.0 (品管防護版)</h1>
 
     <div class="container">
         <div class="settings-panel">
@@ -83,20 +86,29 @@
 
         <hr style="width: 100%; border-color: #333;">
 
-        <h3 style="margin: 0; color: #f6d365;">📝 純文字快速處理 (支援 Excel 欄位複製)</h3>
-        <div><textarea id="sourceText" placeholder="請直接從 Excel 複製多個欄位貼到這裡..."></textarea></div>
+        <h3 style="margin: 0; color: #f6d365;">📝 純文字快速處理</h3>
+        <div><textarea id="sourceText" placeholder="請貼上文字 (內含的 <color> 或 {0} 等代碼將受到智能防護)..."></textarea></div>
         <div style="text-align: center;"><button onclick="processText()">✨ 開始淨化文字</button></div>
+        
+        <div id="qcReportPanel" class="qc-panel">
+            <h4 style="margin: 0 0 10px 0; color: #a8ff78;">📊 淨化品質管理報告 (QC)</h4>
+            <div id="qcReportContent" style="font-size: 0.95em; line-height: 1.6;"></div>
+        </div>
+
         <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <h3 style="margin: 0; color: #f6d365;">預覽區：</h3>
             <button class="btn-success" onclick="copyRichText()">📋 複製格式結果 (完美貼回 Excel)</button>
         </div>
-        <div id="outputHtml" class="output-panel">處理後的結果會轉換為「隱形表格」，確保貼回 Excel 時欄位不會跑掉...</div>
+        <div id="outputHtml" class="output-panel">處理後的結果將顯示於此...</div>
     </div>
 
     <script>
         let converterS2T = null;
         let replaceDict = {};
         let searchRegex = null;
+        
+        // 📊 QC 統計變數
+        let qcStats = { charCount: 0, replaceCount: 0, wordFreq: {} };
 
         window.onload = async function() {
             const s2tStatus = document.getElementById('s2tStatus');
@@ -112,6 +124,29 @@
 
             await loadDictionary();
         };
+
+        function resetQC() {
+            qcStats = { charCount: 0, replaceCount: 0, wordFreq: {} };
+            document.getElementById('qcReportPanel').style.display = 'none';
+        }
+
+        function recordReplace(word) {
+            qcStats.replaceCount++;
+            qcStats.wordFreq[word] = (qcStats.wordFreq[word] || 0) + 1;
+        }
+
+        function displayQC() {
+            const sortedWords = Object.entries(qcStats.wordFreq).sort((a, b) => b[1] - a[1]);
+            let topWordsHtml = sortedWords.slice(0, 5).map(item => `「${item[0]}」(${item[1]}次)`).join('、');
+            if (topWordsHtml === '') topWordsHtml = '無觸發字庫';
+
+            document.getElementById('qcReportContent').innerHTML = `
+                🔹 本次共掃描：<span class="qc-highlight">${qcStats.charCount}</span> 字<br>
+                🔹 成功替換了：<span class="qc-highlight">${qcStats.replaceCount}</span> 個詞彙<br>
+                🔹 發生頻率最高的替換詞 (Top 5)：<span style="color:#fff;">${topWordsHtml}</span>
+            `;
+            document.getElementById('qcReportPanel').style.display = 'block';
+        }
 
         function parseCSVRow(str) {
             let result = [], cell = '', inQuotes = false;
@@ -198,27 +233,42 @@
         }
 
         function processText() {
-            let text = document.getElementById('sourceText').value;
+            resetQC();
+            let originalInput = document.getElementById('sourceText').value;
             const useS2T = document.getElementById('chkS2T').checked;
             const useDict = document.getElementById('chkDict').checked;
             const outputDiv = document.getElementById('outputHtml');
 
-            if (!text.trim()) { outputDiv.innerHTML = "<span style='color:red;'>請先貼上文字！</span>"; return; }
-
-            // Step 1: 簡轉繁
-            if (useS2T && converterS2T) text = converterS2T(text);
+            if (!originalInput.trim()) { outputDiv.innerHTML = "<span style='color:red;'>請先貼上文字！</span>"; return; }
             
-            // Step 2: HTML 安全跳脫
-            text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            qcStats.charCount = originalInput.length;
 
-            // Step 3: 紅字字典取代
+            // 🛡️ 步驟一：變數防護罩 (抓出 < > 和 { } 內的代碼)
+            let protectedTags = [];
+            let text = originalInput.replace(/<[^>]+>|\{[^}]+\}/g, (match) => {
+                protectedTags.push(match);
+                return `⟪TAG${protectedTags.length - 1}⟫`;
+            });
+
+            // 步驟二：簡轉繁
+            if (useS2T && converterS2T) text = converterS2T(text);
+
+            // 步驟三：紅字字典取代
             if (useDict && searchRegex) {
                 text = text.replace(searchRegex, (matchedStr) => {
-                    return `<span style="color: #ff0000; font-weight: bold;">${replaceDict[matchedStr]}</span>`;
+                    const replacedWord = replaceDict[matchedStr];
+                    recordReplace(replacedWord); // 📊 紀錄 QC 數據
+                    return `<span style="color: #ff0000; font-weight: bold;">${replacedWord}</span>`;
                 });
             }
             
-            // 🌟 終極魔法：將 Tab (\t) 和換行 (\n) 轉換為 HTML 表格！
+            // 🛡️ 步驟四：解開防護罩，並進行 HTML 安全跳脫 (確保 <color> 在網頁上不會變成亂碼)
+            text = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => {
+                let originalTag = protectedTags[parseInt(p1)];
+                return originalTag.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            });
+            
+            // 步驟五：隱形表格轉換
             let htmlTable = '<table style="border-collapse: collapse; border: none; width: 100%;">';
             let rows = text.split('\n');
             for (let row of rows) {
@@ -233,6 +283,7 @@
             htmlTable += '</table>';
             
             outputDiv.innerHTML = htmlTable;
+            displayQC();
         }
 
         function copyRichText() {
@@ -257,6 +308,7 @@
 
             if (fileInput.files.length === 0) return;
             statusBox.innerText = "⏳ 正在啟動天使引擎讀取檔案..."; statusBox.style.color = "#f6d365";
+            resetQC();
 
             try {
                 const file = fileInput.files[0];
@@ -269,24 +321,51 @@
                         row.eachCell((cell) => {
                             if (cell.type === ExcelJS.ValueType.String) {
                                 let originalText = cell.value;
+                                qcStats.charCount += originalText.length;
                                 let processed = false;
-                                if (useS2T && converterS2T) originalText = converterS2T(originalText);
+                                
+                                // 🛡️ 變數防護罩
+                                let protectedTags = [];
+                                let text = originalText.replace(/<[^>]+>|\{[^}]+\}/g, (match) => {
+                                    protectedTags.push(match);
+                                    return `⟪TAG${protectedTags.length - 1}⟫`;
+                                });
+
+                                if (useS2T && converterS2T) text = converterS2T(text);
 
                                 if (useDict && searchRegex) {
                                     let fragments = [];
                                     let lastIndex = 0;
                                     let localRegex = new RegExp(searchRegex.source, 'g');
                                     let match;
-                                    while ((match = localRegex.exec(originalText)) !== null) {
+                                    while ((match = localRegex.exec(text)) !== null) {
                                         processed = true;
-                                        if (match.index > lastIndex) fragments.push({ text: originalText.substring(lastIndex, match.index) });
-                                        fragments.push({ text: replaceDict[match[0]], font: { color: { argb: 'FFFF0000' }, bold: true } });
+                                        if (match.index > lastIndex) fragments.push({ text: text.substring(lastIndex, match.index) });
+                                        
+                                        const replacedWord = replaceDict[match[0]];
+                                        recordReplace(replacedWord); // 📊 紀錄 QC 數據
+                                        
+                                        fragments.push({ text: replacedWord, font: { color: { argb: 'FFFF0000' }, bold: true } });
                                         lastIndex = localRegex.lastIndex;
                                     }
-                                    if (lastIndex < originalText.length) fragments.push({ text: originalText.substring(lastIndex) });
+                                    if (lastIndex < text.length) fragments.push({ text: text.substring(lastIndex) });
+                                    
+                                    // 🛡️ 解開防護罩 (寫回 Fragments)
+                                    fragments.forEach(frag => {
+                                        if (frag.text.includes('⟪TAG')) {
+                                            frag.text = frag.text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
+                                        }
+                                    });
+
                                     if (processed) cell.value = { richText: fragments };
-                                    else cell.value = originalText;
-                                } else { cell.value = originalText; }
+                                    else {
+                                        let restoredText = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
+                                        cell.value = restoredText;
+                                    }
+                                } else { 
+                                    let restoredText = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
+                                    cell.value = restoredText; 
+                                }
                             }
                         });
                     });
@@ -298,7 +377,9 @@
                 const a = document.createElement('a');
                 a.href = downloadUrl; a.download = "天使淨化版_" + file.name;
                 document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(downloadUrl);
-                statusBox.innerText = "✅ 轉換成功！"; statusBox.style.color = "#a8ff78";
+                statusBox.innerText = "✅ 轉換成功！請查看下載資料夾。"; statusBox.style.color = "#a8ff78";
+                
+                displayQC(); // 📊 顯示 QC 報告
             } catch (error) {
                 statusBox.innerText = "❌ 處理發生錯誤"; statusBox.style.color = "#ff4444";
             }
