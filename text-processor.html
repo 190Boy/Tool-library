@@ -16,11 +16,9 @@
             flex-direction: column;
             align-items: center;
         }
-        /* 天使風格標題 */
         h1 { color: #f6d365; margin-bottom: 20px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); letter-spacing: 1px; }
         .container { width: 100%; max-width: 1000px; display: flex; flex-direction: column; gap: 20px; }
         
-        /* 設定區塊 */
         .settings-panel {
             background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #333;
             display: flex; flex-direction: column; gap: 15px;
@@ -36,7 +34,6 @@
         }
         textarea:focus { outline: none; border-color: #f6d365; }
         
-        /* 天使風格按鈕 */
         button {
             background: linear-gradient(135deg, #f6d365 0%, #fda085 100%); color: #121212;
             border: none; padding: 12px 25px; border-radius: 6px; font-size: 1.1rem; font-weight: bold;
@@ -47,7 +44,6 @@
         
         .btn-success { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: #121212; }
         
-        /* 輸出結果區塊 (背景設為白色以模擬文件) */
         .output-panel {
             background-color: #ffffff; color: #000000; 
             padding: 20px; border-radius: 8px; min-height: 200px; line-height: 1.6;
@@ -66,7 +62,7 @@
             <div class="settings-row">
                 <label class="checkbox-group">
                     <input type="checkbox" id="chkS2T" checked>
-                    1️⃣ 執行：簡體轉繁體
+                    1️⃣ 執行：簡體轉繁體 <span id="s2tStatus" style="font-size: 0.8em; color:#a8ff78;"></span>
                 </label>
             </div>
             <div class="settings-row">
@@ -77,7 +73,7 @@
             </div>
             <div class="settings-row">
                 <span>📚 雲端字庫連線狀態：</span>
-                <span id="dictStatus" class="status-msg">等待連線...</span>
+                <span id="dictStatus" class="status-msg">初始化中...</span>
             </div>
         </div>
 
@@ -97,24 +93,37 @@
     </div>
 
     <script>
-        // ==========================================
-        // 🌟 專屬固定字庫網址 🌟
-        // ==========================================
+        // 你的專屬固定字庫網址
         const csvUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfuEzU_l8vOO-cbC_mQHBPEc9vpeOSqw4S5mv2D5xAJ2heBohMgr7aOzchLy8e6A/pub?gid=900428424&single=true&output=csv";
 
-        // 初始化 OpenCC
-        const converterS2T = OpenCC.Converter({ from: 'cn', to: 'tw' });
-        
-        // 儲存字庫的變數
+        let converterS2T = null;
         let replaceDict = {};
         let searchRegex = null;
 
-        // 網頁載入時，自動抓取字庫
-        window.onload = function() {
-            loadDictionary();
+        // 確保網頁完全載入後再執行，避免卡死
+        window.onload = async function() {
+            const statusLabel = document.getElementById('dictStatus');
+            const s2tStatus = document.getElementById('s2tStatus');
+            statusLabel.innerText = "⏳ 正在啟動天使系統...";
+
+            // 1. 安全初始化簡繁轉換庫
+            try {
+                if (typeof OpenCC !== 'undefined') {
+                    converterS2T = OpenCC.Converter({ from: 'cn', to: 'tw' });
+                    s2tStatus.innerText = "(✅ 轉換引擎就緒)";
+                } else {
+                    s2tStatus.innerText = "(⚠️ 引擎載入失敗，可能是被擋廣告套件攔截)";
+                    s2tStatus.style.color = "#ff4444";
+                }
+            } catch (e) {
+                console.error("OpenCC 錯誤:", e);
+                s2tStatus.innerText = "(⚠️ 引擎發生錯誤)";
+            }
+
+            // 2. 載入字庫
+            await loadDictionary(statusLabel);
         };
 
-        // CSV 解析大腦
         function parseCSVRow(str) {
             let result = [], cell = '', inQuotes = false;
             for (let i = 0; i < str.length; i++) {
@@ -128,17 +137,107 @@
             return result.map(c => c.trim());
         }
 
-        // 跳脫正規表達式的特殊符號
         function escapeRegExp(string) {
             return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         }
 
-        // 自動載入字庫表邏輯
-        async function loadDictionary() {
-            const statusLabel = document.getElementById('dictStatus');
-            statusLabel.innerText = "⏳ 正在與天使字庫同步中...";
+        async function loadDictionary(statusLabel) {
+            statusLabel.innerText = "⏳ 正在與 Google 試算表連線中...";
             statusLabel.style.color = "#f6d365";
 
             try {
                 const response = await fetch(csvUrl);
-                const csvData = await response.
+                if (!response.ok) throw new Error("網路連線異常：" + response.status);
+                
+                const csvData = await response.text();
+                const lines = csvData.split(/\r?\n/).filter(line => line.trim() !== "");
+                replaceDict = {};
+
+                for (let i = 1; i < lines.length; i++) {
+                    const row = parseCSVRow(lines[i]);
+                    // 確保 A 欄和 B 欄都有資料才加入，防止空白行作亂
+                    if (row.length >= 2 && row[0].trim() !== "" && row[1].trim() !== "") {
+                        replaceDict[row[0].trim()] = row[1].trim();
+                    }
+                }
+
+                const wordsCount = Object.keys(replaceDict).length;
+                if (wordsCount === 0) {
+                    throw new Error("試算表內沒有找到有效的字庫資料！");
+                }
+
+                const sortedWords = Object.keys(replaceDict).sort((a, b) => b.length - a.length);
+                searchRegex = new RegExp(sortedWords.map(escapeRegExp).join('|'), 'g');
+
+                statusLabel.innerText = `✅ 同步成功！天使已讀取 ${wordsCount} 筆取代規則。`;
+                statusLabel.style.color = "#a8ff78";
+
+            } catch (error) {
+                console.error(error);
+                statusLabel.innerText = `❌ 同步失敗 (${error.message})`;
+                statusLabel.style.color = "#ff4444";
+            }
+        }
+
+        function processText() {
+            let text = document.getElementById('sourceText').value;
+            const useS2T = document.getElementById('chkS2T').checked;
+            const useDict = document.getElementById('chkDict').checked;
+            const outputDiv = document.getElementById('outputHtml');
+
+            if (!text.trim()) {
+                outputDiv.innerHTML = "<span style='color:red;'>請先貼上原始文字喔！</span>";
+                return;
+            }
+
+            // Step 1: 簡體轉繁體
+            if (useS2T) {
+                if (converterS2T) {
+                    text = converterS2T(text);
+                } else {
+                    alert("⚠️ 簡繁轉換引擎未啟動，將跳過此步驟。");
+                }
+            }
+
+            text = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+            // Step 2: 字庫取代
+            if (useDict) {
+                if (searchRegex) {
+                    text = text.replace(searchRegex, (matchedStr) => {
+                        return `<span style="color: #ff0000; font-weight: bold;">${replaceDict[matchedStr]}</span>`;
+                    });
+                } else {
+                    alert("⚠️ 天使字庫尚未載入成功，將跳過字庫取代。");
+                }
+            }
+
+            text = text.replace(/\n/g, "<br>");
+            outputDiv.innerHTML = text;
+        }
+
+        function copyRichText() {
+            const outputDiv = document.getElementById('outputHtml');
+            if (outputDiv.innerText.includes("處理後的結果將保留換行")) {
+                alert("請先點擊「開始淨化文字」喔！");
+                return;
+            }
+
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(outputDiv);
+            
+            selection.removeAllRanges();
+            selection.addRange(range);
+            
+            try {
+                document.execCommand('copy');
+                alert("✅ 複製成功！帶有紅字格式的文字已經存入剪貼簿，可以去 Word 貼上囉！");
+            } catch (err) {
+                alert("❌ 複製失敗，請手動反白框內的文字複製。");
+            }
+            selection.removeAllRanges();
+        }
+    </script>
+</body>
+</html>
