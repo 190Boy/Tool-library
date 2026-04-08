@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>遊戲公告實時預覽編輯器</title>
+    <style>
+        /* 基礎暗色系設定 */
+        body {
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #f0f0f0;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            flex: 1;
+            min-height: 0;
+        }
+        
+        /* 編輯區：放大佔位比例 */
+        .editor-section {
+            flex: 1; /* 佔據所有剩餘空間 */
+            display: flex;
+            flex-direction: column;
+            background: #1e1e1e;
+            border-radius: 8px;
+            border: 1px solid #333;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            padding: 20px;
+        }
+        
+        /* 預覽區：固定寬度、縮小黑邊 */
+        .preview-section {
+            width: 420px; /* 固定寬度，不佔用多餘空間 */
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            background: #1e1e1e;
+            border-radius: 8px;
+            border: 1px solid #333;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            padding: 15px; /* 縮小內縮黑邊 */
+        }
+        
+        h2 {
+            margin-top: 0;
+            font-size: 18px;
+            color: #aaa;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+        textarea {
+            flex: 1;
+            width: 100%;
+            resize: none;
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 15px;
+            font-size: 15px;
+            font-family: monospace;
+            line-height: 1.6;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        textarea:focus {
+            border-color: #5c7bbb;
+            box-shadow: 0 0 0 3px rgba(92, 123, 187, 0.2);
+        }
+        textarea::-webkit-scrollbar {
+            width: 8px;
+        }
+        textarea::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 4px;
+        }
+        .preview-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #0a0a0a;
+            border-radius: 6px;
+            overflow: hidden;
+            padding: 10px 0; /* 縮小上下黑邊 */
+        }
+        .mobile-mockup {
+            width: 375px; 
+            height: 100%;
+            max-height: 750px;
+            background: #181818;
+            border: 1px solid #444;
+            border-radius: 0px; 
+            overflow-y: auto;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+        }
+        .mobile-mockup::-webkit-scrollbar {
+            width: 6px;
+        }
+        .mobile-mockup::-webkit-scrollbar-thumb {
+            background: #444;
+        }
+        #previewContent {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+        }
+        .preview-image {
+            width: 100%;
+            display: block;
+            background-color: #222;
+        }
+        /* 圖片載入失敗時的樣式 */
+        .preview-image-error {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 150px;
+            background-color: #2a1111;
+            color: #ff6b6b;
+            font-size: 14px;
+            border: 1px dashed #ff6b6b;
+            text-align: center;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        .preview-text {
+            padding: 18px;
+            font-size: 15px;
+            line-height: 1.7;
+            color: #d4d4d4;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🎮 公告實時預覽編輯器 (護眼無裁切版)</h1>
+    </div>
+
+    <div class="container">
+        <div class="editor-section">
+            <h2>📝 原始碼輸入 (支援無限段落與圖片)</h2>
+            <textarea id="sourceInput" spellcheck="false"></textarea>
+        </div>
+
+        <div class="preview-section">
+            <h2>📱 實際版面預覽 (100% 無裁切)</h2>
+            <div class="preview-container">
+                <div class="mobile-mockup">
+                    <div id="previewContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const sourceInput = document.getElementById('sourceInput');
+        const previewContent = document.getElementById('previewContent');
+
+        const defaultText = `請輸入公告內容...`;
+
+        function updatePreview() {
+            const rawText = sourceInput.value;
+            const parts = rawText.split('#|#');
+            
+            let htmlOutput = '';
+
+            parts.forEach(part => {
+                const trimmedForCheck = part.trim();
+                if (!trimmedForCheck) return;
+
+                if (trimmedForCheck.startsWith('http://') || trimmedForCheck.startsWith('https://')) {
+                    // 如果是圖片，加入明確的錯誤提示 (如果網址失效)
+                    htmlOutput += `
+                        <img class="preview-image" src="${trimmedForCheck}" alt="Banner" 
+                             onerror="this.outerHTML='<div class=\\'preview-image-error\\'>圖片載入失敗<br>請檢查網址或圖片是否已刪除</div>'">
+                    `;
+                } else {
+                    // 如果是文字，保留原本的空白與換行。
+                    // 只有當區塊最開頭有 "一個" 換行時才去掉 (為了避免 #|# 後的純排版換行變成空白行)
+                    let parsedText = part.replace(/^\n/, '')
+                        .replace(/\[([a-fA-F0-9]{6})\]/g, '<span style="color: #$1;">')
+                        .replace(/\[-\]/g, '</span>')
+                        .replace(/\n/g, '<br>');
+                        
+                    htmlOutput += `<div class="preview-text">${parsedText}</div>`;
+                }
+            });
+
+            previewContent.innerHTML = htmlOutput;
+        }
+
+        sourceInput.addEventListener('input', updatePreview);
+        sourceInput.value = defaultText;
+        updatePreview();
+    </script>
+</body>
+</html>
