@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>天使文本處理器 V4.0 - 品質控管與防護版</title>
+    <title>天使文本處理器 V4.1 - 智能精準校對版</title>
     <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <style>
@@ -32,7 +32,6 @@
         .btn-edit { background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%); color: #fff; padding: 10px 15px; font-size: 0.9rem; text-decoration: none; border-radius: 6px; font-weight: bold; transition: 0.2s; display: inline-block; text-align: center; }
         .btn-edit:hover { filter: brightness(1.1); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(155, 89, 182, 0.3); }
         
-        /* 📊 QC 面板樣式 */
         .qc-panel { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); border: 1px solid #4facfe; padding: 15px 20px; border-radius: 8px; display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .qc-highlight { color: #f6d365; font-weight: bold; font-size: 1.2em; margin: 0 5px; }
 
@@ -48,7 +47,7 @@
 </head>
 <body>
 
-    <h1>👼 天使文本處理器 V4.0 (品管防護版)</h1>
+    <h1>👼 天使文本處理器 V4.1 (智能精準校對版)</h1>
 
     <div class="container">
         <div class="settings-panel">
@@ -57,7 +56,7 @@
                 <label class="checkbox-group"><input type="checkbox" id="chkS2T" checked> 1️⃣ 執行：簡體轉繁體 <span id="s2tStatus" style="font-size: 0.8em; color:#a8ff78;"></span></label>
             </div>
             <div class="settings-row">
-                <label class="checkbox-group"><input type="checkbox" id="chkDict" checked> 2️⃣ 執行：自動套用雲端字庫 (替換字將標示紅字)</label>
+                <label class="checkbox-group"><input type="checkbox" id="chkDict" checked> 2️⃣ 執行：自動套用雲端字庫 (僅標示有更動的紅字)</label>
             </div>
             
             <div class="settings-row" style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
@@ -107,7 +106,6 @@
         let replaceDict = {};
         let searchRegex = null;
         
-        // 📊 QC 統計變數
         let qcStats = { charCount: 0, replaceCount: 0, wordFreq: {} };
 
         window.onload = async function() {
@@ -138,12 +136,12 @@
         function displayQC() {
             const sortedWords = Object.entries(qcStats.wordFreq).sort((a, b) => b[1] - a[1]);
             let topWordsHtml = sortedWords.slice(0, 5).map(item => `「${item[0]}」(${item[1]}次)`).join('、');
-            if (topWordsHtml === '') topWordsHtml = '無觸發字庫';
+            if (topWordsHtml === '') topWordsHtml = '無觸發實質替換';
 
             document.getElementById('qcReportContent').innerHTML = `
                 🔹 本次共掃描：<span class="qc-highlight">${qcStats.charCount}</span> 字<br>
-                🔹 成功替換了：<span class="qc-highlight">${qcStats.replaceCount}</span> 個詞彙<br>
-                🔹 發生頻率最高的替換詞 (Top 5)：<span style="color:#fff;">${topWordsHtml}</span>
+                🔹 發生實質替換：<span class="qc-highlight">${qcStats.replaceCount}</span> 個詞彙<br>
+                🔹 最常被替換的詞 (Top 5)：<span style="color:#fff;">${topWordsHtml}</span>
             `;
             document.getElementById('qcReportPanel').style.display = 'block';
         }
@@ -243,32 +241,33 @@
             
             qcStats.charCount = originalInput.length;
 
-            // 🛡️ 步驟一：變數防護罩 (抓出 < > 和 { } 內的代碼)
             let protectedTags = [];
             let text = originalInput.replace(/<[^>]+>|\{[^}]+\}/g, (match) => {
                 protectedTags.push(match);
                 return `⟪TAG${protectedTags.length - 1}⟫`;
             });
 
-            // 步驟二：簡轉繁
             if (useS2T && converterS2T) text = converterS2T(text);
 
-            // 步驟三：紅字字典取代
             if (useDict && searchRegex) {
                 text = text.replace(searchRegex, (matchedStr) => {
                     const replacedWord = replaceDict[matchedStr];
-                    recordReplace(replacedWord); // 📊 紀錄 QC 數據
+                    
+                    // 🌟 V4.1 核心修復：如果比對完發現字根本沒變，就直接還原，不加紅字！
+                    if (matchedStr === replacedWord) {
+                        return matchedStr; 
+                    }
+                    
+                    recordReplace(replacedWord); 
                     return `<span style="color: #ff0000; font-weight: bold;">${replacedWord}</span>`;
                 });
             }
             
-            // 🛡️ 步驟四：解開防護罩，並進行 HTML 安全跳脫 (確保 <color> 在網頁上不會變成亂碼)
             text = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => {
                 let originalTag = protectedTags[parseInt(p1)];
                 return originalTag.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
             });
             
-            // 步驟五：隱形表格轉換
             let htmlTable = '<table style="border-collapse: collapse; border: none; width: 100%;">';
             let rows = text.split('\n');
             for (let row of rows) {
@@ -323,8 +322,8 @@
                                 let originalText = cell.value;
                                 qcStats.charCount += originalText.length;
                                 let processed = false;
+                                let hasActualChange = false; // 🌟 追蹤是否真的有修改
                                 
-                                // 🛡️ 變數防護罩
                                 let protectedTags = [];
                                 let text = originalText.replace(/<[^>]+>|\{[^}]+\}/g, (match) => {
                                     protectedTags.push(match);
@@ -338,27 +337,36 @@
                                     let lastIndex = 0;
                                     let localRegex = new RegExp(searchRegex.source, 'g');
                                     let match;
+                                    
                                     while ((match = localRegex.exec(text)) !== null) {
                                         processed = true;
                                         if (match.index > lastIndex) fragments.push({ text: text.substring(lastIndex, match.index) });
                                         
                                         const replacedWord = replaceDict[match[0]];
-                                        recordReplace(replacedWord); // 📊 紀錄 QC 數據
                                         
-                                        fragments.push({ text: replacedWord, font: { color: { argb: 'FFFF0000' }, bold: true } });
+                                        // 🌟 V4.1 核心修復 (Excel版)
+                                        if (match[0] === replacedWord) {
+                                            fragments.push({ text: match[0] }); // 沒改變，保持純文字不加顏色
+                                        } else {
+                                            hasActualChange = true;
+                                            recordReplace(replacedWord); 
+                                            fragments.push({ text: replacedWord, font: { color: { argb: 'FFFF0000' }, bold: true } });
+                                        }
+                                        
                                         lastIndex = localRegex.lastIndex;
                                     }
                                     if (lastIndex < text.length) fragments.push({ text: text.substring(lastIndex) });
                                     
-                                    // 🛡️ 解開防護罩 (寫回 Fragments)
                                     fragments.forEach(frag => {
                                         if (frag.text.includes('⟪TAG')) {
                                             frag.text = frag.text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
                                         }
                                     });
 
-                                    if (processed) cell.value = { richText: fragments };
-                                    else {
+                                    // 如果有處理且「真的有改變」，才套用富文本格式
+                                    if (processed && hasActualChange) {
+                                        cell.value = { richText: fragments };
+                                    } else {
                                         let restoredText = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
                                         cell.value = restoredText;
                                     }
@@ -379,7 +387,7 @@
                 document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(downloadUrl);
                 statusBox.innerText = "✅ 轉換成功！請查看下載資料夾。"; statusBox.style.color = "#a8ff78";
                 
-                displayQC(); // 📊 顯示 QC 報告
+                displayQC(); 
             } catch (error) {
                 statusBox.innerText = "❌ 處理發生錯誤"; statusBox.style.color = "#ff4444";
             }
