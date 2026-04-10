@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>天使文本處理器 V4.2 - 純淨複製升級版</title>
+    <title>天使文本處理器 V4.3 - 雙軌剪貼簿版</title>
     <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <style>
@@ -47,7 +47,7 @@
 </head>
 <body>
 
-    <h1>👼 天使文本處理器 V4.2 (純淨複製升級版)</h1>
+    <h1>👼 天使文本處理器 V4.3</h1>
 
     <div class="container">
         <div class="settings-panel">
@@ -70,7 +70,6 @@
                 <span>📚 雲端字庫狀態：</span>
                 <span id="dictStatus" class="status-msg">等待連線...</span>
             </div>
-            
             <div id="diagnosticReport"></div>
         </div>
 
@@ -96,7 +95,7 @@
 
         <div style="display: flex; justify-content: space-between; align-items: flex-end;">
             <h3 style="margin: 0; color: #f6d365;">預覽區：</h3>
-            <button class="btn-success" onclick="copyRichText()">📋 複製格式結果 (完美貼回 Excel 不蓋底色)</button>
+            <button class="btn-success" onclick="copyRichText()">📋 複製格式結果 (完美支援「只貼上值」)</button>
         </div>
         <div id="outputHtml" class="output-panel">處理後的結果將顯示於此...</div>
     </div>
@@ -248,6 +247,9 @@
             });
 
             if (useS2T && converterS2T) text = converterS2T(text);
+            
+            // 🌟 將「未套用 HTML 標籤」的純文字版單獨保存
+            let plainTextVersion = text;
 
             if (useDict && searchRegex) {
                 text = text.replace(searchRegex, (matchedStr) => {
@@ -256,12 +258,25 @@
                     recordReplace(replacedWord); 
                     return `<span style="color: #ff0000; font-weight: bold;">${replacedWord}</span>`;
                 });
+                
+                // 純文字版本也要執行取代，但不加 span 標籤
+                plainTextVersion = plainTextVersion.replace(searchRegex, (matchedStr) => {
+                    return replaceDict[matchedStr];
+                });
             }
             
             text = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => {
                 let originalTag = protectedTags[parseInt(p1)];
                 return originalTag.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
             });
+            
+            // 將純文字版本的防護罩也解開
+            plainTextVersion = plainTextVersion.replace(/⟪TAG(\d+)⟫/g, (match, p1) => {
+                return protectedTags[parseInt(p1)];
+            });
+            
+            // 🌟 將最完美的純淨文本存入全域變數，供剪貼簿提取
+            window.lastProcessedPlainText = plainTextVersion;
             
             let htmlTable = '<table style="border-collapse: collapse; border: none; width: 100%;">';
             let rows = text.split('\n');
@@ -280,7 +295,6 @@
             displayQC();
         }
 
-        // 🌟 V4.2 核心升級：純淨剪貼簿引擎
         async function copyRichText() {
             const outputDiv = document.getElementById('outputHtml');
             if (!outputDiv.innerHTML.includes("<table")) {
@@ -288,45 +302,24 @@
                 return;
             }
 
-            // 直接抓取乾淨的 Table HTML，不包含任何外部的字體或背景色設定
             const rawHtml = outputDiv.innerHTML;
+            // 🌟 提取我們剛剛精心保存的完美純文字
+            const cleanPlainText = window.lastProcessedPlainText || outputDiv.innerText;
             
             try {
-                // 使用現代 Clipboard API 強制寫入乾淨代碼
+                // 雙軌寫入：網頁格式 + 純文字格式
                 const blobHtml = new Blob([rawHtml], { type: "text/html" });
-                const blobText = new Blob([outputDiv.innerText], { type: "text/plain" });
+                const blobText = new Blob([cleanPlainText], { type: "text/plain" });
                 const clipboardItem = new ClipboardItem({
                     "text/html": blobHtml,
                     "text/plain": blobText
                 });
                 
                 await navigator.clipboard.write([clipboardItem]);
-                alert("✅ 複製成功！這次直接貼回 Excel，絕對不會蓋掉你辛苦設定的底色和字體了！");
+                alert("✅ 複製成功！現在不管是直接貼上(保留紅字)，還是「只貼上值」(完美對齊)，都能完美支援囉！");
                 
             } catch (error) {
-                // 如果瀏覽器較舊或不支援，退回使用隱形無格式區塊來複製
-                const cleanDiv = document.createElement('div');
-                cleanDiv.innerHTML = rawHtml;
-                cleanDiv.style.position = 'absolute';
-                cleanDiv.style.left = '-9999px';
-                cleanDiv.style.background = 'transparent';
-                document.body.appendChild(cleanDiv);
-                
-                const selection = window.getSelection();
-                const range = document.createRange();
-                range.selectNodeContents(cleanDiv);
-                selection.removeAllRanges();
-                selection.addRange(range);
-                
-                try {
-                    document.execCommand('copy');
-                    alert("✅ 複製成功！這次直接貼回 Excel，絕對不會蓋掉你辛苦設定的底色和字體了！");
-                } catch (err) {
-                    alert("❌ 複製失敗");
-                }
-                
-                selection.removeAllRanges();
-                document.body.removeChild(cleanDiv);
+                alert("❌ 瀏覽器可能不支援進階剪貼簿功能，請確認是否有開啟相關權限。");
             }
         }
 
