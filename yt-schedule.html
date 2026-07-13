@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>影片排程看板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --night: #15122A;
+    --panel: #1E1A38;
+    --panel-edge: #2C2750;
+    --text: #EAE7F6;
+    --text-dim: #8F89AE;
+    --gold: #D4B06A;
+    --gold-soft: rgba(212, 176, 106, 0.14);
+    --live: #6ACB8E;
+    --radius: 14px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(90, 70, 160, 0.25), transparent 60%),
+      var(--night);
+    color: var(--text);
+    font-family: 'Noto Sans TC', sans-serif;
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+  h1 {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 26px; font-weight: 700; letter-spacing: 2px;
+  }
+  h1::before { content: '◆ '; color: var(--gold); font-size: 18px; }
+  .meta { color: var(--text-dim); font-size: 13px; font-family: 'JetBrains Mono', monospace; }
+
+  /* 下一支發布:主卡 */
+  .hero {
+    background: linear-gradient(135deg, var(--panel), #241E48);
+    border: 1px solid var(--panel-edge);
+    border-left: 3px solid var(--gold);
+    border-radius: var(--radius);
+    padding: 26px 28px;
+    margin-bottom: 34px;
+  }
+  .hero .eyebrow {
+    color: var(--gold); font-size: 12px; letter-spacing: 3px; margin-bottom: 12px;
+    font-weight: 700;
+  }
+  .hero .title {
+    font-family: 'Noto Serif TC', serif;
+    font-size: 20px; font-weight: 600; line-height: 1.5; margin-bottom: 16px;
+  }
+  .countdown {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 40px; font-weight: 700; color: var(--gold);
+    letter-spacing: 1px; margin-bottom: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .hero .when { color: var(--text-dim); font-size: 14px; margin-bottom: 18px; }
+
+  .url-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--text-dim);
+    text-decoration: none; word-break: break-all;
+  }
+  .url-text:hover, .url-text:focus-visible { color: var(--gold); text-decoration: underline; }
+
+  /* 排程清單 */
+  .section-label { color: var(--text-dim); font-size: 13px; letter-spacing: 2px; margin-bottom: 14px; }
+  .card {
+    display: flex; align-items: center; gap: 16px;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    margin-bottom: 12px;
+  }
+  .card .time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; color: var(--gold);
+    white-space: nowrap; text-align: center; min-width: 92px;
+    font-variant-numeric: tabular-nums;
+  }
+  .card .time .date { display: block; }
+  .card .time .clock { display: block; font-size: 17px; font-weight: 700; }
+  .card .info { flex: 1; min-width: 0; }
+  .card .info .t { font-size: 15px; font-weight: 500; line-height: 1.5; word-break: break-word; }
+  .card .info .left { font-size: 12px; color: var(--text-dim); margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+  .actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .btn {
+    background: var(--gold-soft); color: var(--gold);
+    border: 1px solid transparent; border-radius: 8px;
+    font-family: inherit; font-size: 13px; font-weight: 500;
+    padding: 8px 14px; cursor: pointer; text-decoration: none;
+    transition: border-color 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover, .btn:focus-visible { border-color: var(--gold); }
+  .btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  .published .time, .published .info .t { color: var(--text-dim); }
+  .published { opacity: 0.75; }
+  .badge-live {
+    color: var(--live); font-size: 12px; font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  .state { text-align: center; color: var(--text-dim); padding: 60px 0; line-height: 2; }
+  .state .big { font-size: 17px; color: var(--text); }
+
+  footer { margin-top: 40px; text-align: center; color: var(--text-dim); font-size: 12px; }
+  footer button {
+    background: none; border: none; color: var(--gold); cursor: pointer;
+    font-family: inherit; font-size: 12px; text-decoration: underline;
+  }
+
+  @media (max-width: 560px) {
+    .card { flex-wrap: wrap; }
+    .countdown { font-size: 30px; }
+    .actions { width: 100%; }
+    .btn { flex: 1; text-align: center; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .card, .hero { animation: rise 0.35s ease both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>影片排程看板</h1>
+    <div class="meta" id="fetched-at"></div>
+  </header>
+  <main id="app">
+    <div class="state"><div class="big">載入排程資料中…</div></div>
+  </main>
+  <footer>
+    資料每 10 分鐘自動更新 ・ <button id="refresh-btn" type="button">立即重新整理</button>
+  </footer>
+</div>
+
+<script>
+// ===== 設定區 =====
+const GAS_URL = '請貼入GAS網頁應用程式網址'; // doGet 端點,結尾是 /exec
+const RELOAD_MS = 10 * 60 * 1000; // 自動重新抓資料的間隔
+// ==================
+
+const app = document.getElementById('app');
+const fetchedAtEl = document.getElementById('fetched-at');
+let videos = [];
+let tickTimer = null;
+
+function parseTime(v) {
+  // 相容兩種格式:Sheets 字串 "2026/07/25 12:00"(視為本地=台北)與 ISO 字串
+  const d = new Date(v);
+  return isNaN(d) ? null : d;
+}
+
+function fmtTaipei(d, withDate = true) {
+  const opt = { timeZone: 'Asia/Taipei', hour12: false, hour: '2-digit', minute: '2-digit' };
+  if (withDate) Object.assign(opt, { year: 'numeric', month: '2-digit', day: '2-digit' });
+  return d.toLocaleString('zh-TW', opt);
+}
+
+function fmtCountdown(ms) {
+  if (ms <= 0) return null;
+  const s = Math.floor(ms / 1000);
+  const dd = Math.floor(s / 86400);
+  const hh = Math.floor((s % 86400) / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (dd > 0) return `${dd} 天 ${hh} 時 ${mm} 分`;
+  return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+}
+
+function esc(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function render() {
+  const now = Date.now();
+  const upcoming = videos.filter(v => v.date && v.date.getTime() > now)
+                         .sort((a, b) => a.date - b.date);
+  const passed = videos.filter(v => v.date && v.date.getTime() <= now)
+                       .sort((a, b) => b.date - a.date);
+
+  if (videos.length === 0) {
+    app.innerHTML = `<div class="state">
+      <div class="big">目前沒有排定中的影片</div>
+      <div>下次爬蟲執行後若有新排程,這裡會自動出現</div>
+    </div>`;
+    return;
+  }
+
+  let html = '';
+
+  if (upcoming.length > 0) {
+    const next = upcoming[0];
+    html += `<div class="hero">
+      <div class="eyebrow">下一支發布</div>
+      <div class="title">${esc(next.title)}</div>
+      <div class="countdown" data-hero-target="${next.date.getTime()}">${fmtCountdown(next.date - now) || '即將發布'}</div>
+      <div class="when">${fmtTaipei(next.date)}(台北時間)</div>
+      <div style="margin-bottom:16px"><a class="url-text" href="${esc(next.url)}" target="_blank" rel="noopener">${esc(next.url)}</a></div>
+      <div class="actions">
+        <a class="btn" href="${esc(next.url)}" target="_blank" rel="noopener">開啟影片</a>
+        <button class="btn" type="button" data-copy="${esc(next.url)}">複製連結</button>
+      </div>
+    </div>`;
+
+    if (upcoming.length > 1) {
+      html += `<div class="section-label">後續排程 ・ ${upcoming.length - 1} 支</div>`;
+      for (const v of upcoming.slice(1)) {
+        html += cardHtml(v, now);
+      }
+    }
+  }
+
+  if (passed.length > 0) {
+    html += `<div class="section-label" style="margin-top:26px">已到發布時間(等待下次爬蟲確認)・ ${passed.length} 支</div>`;
+    for (const v of passed) {
+      html += cardHtml(v, now, true);
+    }
+  }
+
+  app.innerHTML = html;
+
+  app.querySelectorAll('[data-copy]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        const orig = btn.textContent;
+        btn.textContent = '已複製';
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      } catch (_) {
+        prompt('請手動複製連結:', btn.dataset.copy);
+      }
+    });
+  });
+}
+
+function cardHtml(v, now, published = false) {
+  const [datePart, clockPart] = fmtTaipei(v.date).split(' ');
+  const left = published
+    ? '<span class="badge-live">已發布</span>'
+    : `倒數 ${fmtCountdown(v.date - now) || '—'}`;
+  return `<div class="card${published ? ' published' : ''}">
+    <div class="time"><span class="date">${datePart}</span><span class="clock">${clockPart}</span></div>
+    <div class="info">
+      <div class="t">${esc(v.title)}</div>
+      <div><a class="url-text" href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.url)}</a></div>
+      <div class="left">${left}</div>
+    </div>
+    <div class="actions">
+      <a class="btn" href="${esc(v.url)}" target="_blank" rel="noopener">開啟</a>
+      <button class="btn" type="button" data-copy="${esc(v.url)}">複製</button>
+    </div>
+  </div>`;
+}
+
+// 每秒更新主卡倒數(其餘卡片每分鐘由 render 重繪)
+function startTick() {
+  if (tickTimer) clearInterval(tickTimer);
+  let lastMinute = -1;
+  tickTimer = setInterval(() => {
+    const heroEl = document.querySelector('[data-hero-target]');
+    if (heroEl) {
+      const remain = Number(heroEl.dataset.heroTarget) - Date.now();
+      if (remain <= 0) { render(); return; }
+      heroEl.textContent = fmtCountdown(remain);
+    }
+    const m = new Date().getMinutes();
+    if (m !== lastMinute) { lastMinute = m; render(); }
+  }, 1000);
+}
+
+async function load() {
+  try {
+    const res = await fetch(GAS_URL, { redirect: 'follow' });
+    const data = await res.json();
+    videos = (data.scheduled || []).map(v => ({
+      ...v,
+      date: parseTime(v.publishAt),
+    }));
+    const anyFetched = (data.scheduled || []).find(v => v.fetchedAt);
+    fetchedAtEl.textContent = anyFetched ? `資料時間 ${anyFetched.fetchedAt}` : '';
+    render();
+    startTick();
+  } catch (err) {
+    app.innerHTML = `<div class="state">
+      <div class="big">資料載入失敗</div>
+      <div>請確認 GAS_URL 設定正確、GAS 部署的存取權為「所有人」</div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px">${esc(String(err))}</div>
+    </div>`;
+  }
+}
+
+document.getElementById('refresh-btn').addEventListener('click', load);
+load();
+setInterval(load, RELOAD_MS);
+</script>
+</body>
+</html>
