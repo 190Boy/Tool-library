@@ -10,3 +10,5 @@
   - 簡繁體文本轉換 (OpenCC)
 
 - `image-text-extractor.html` → 圖轉文字
+
+- `yt-schedule.html` → YouTube連結抓取
