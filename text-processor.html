@@ -347,14 +347,46 @@
                 return `⟪TAG${protectedTags.length - 1}⟫`;
             });
             if (useS2T && converterS2T) text = converterS2T(text);
+
+            // 同時產生「純文字」（下載用）與「紅字標示 HTML」（預覽用）
+            const restore = (str) => str.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
+            const esc = (str) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            let plain = '', html = '';
             if (useDict && searchRegex) {
-                text = text.replace(searchRegex, (matchedStr) => {
-                    const replacedWord = replaceDict[matchedStr];
-                    if (matchedStr !== replacedWord) recordReplace(replacedWord);
-                    return replacedWord;
-                });
+                const localRegex = new RegExp(searchRegex.source, 'g');
+                let lastIndex = 0, m;
+                while ((m = localRegex.exec(text)) !== null) {
+                    const before = text.substring(lastIndex, m.index);
+                    plain += before; html += esc(restore(before));
+                    const replacedWord = replaceDict[m[0]];
+                    plain += replacedWord;
+                    if (m[0] !== replacedWord) {
+                        recordReplace(replacedWord);
+                        html += `<span style="color: #ff0000; font-weight: bold;">${esc(replacedWord)}</span>`;
+                    } else {
+                        html += esc(replacedWord);
+                    }
+                    lastIndex = localRegex.lastIndex;
+                }
+                const rest = text.substring(lastIndex);
+                plain += rest; html += esc(restore(rest));
+            } else {
+                plain = text; html = esc(restore(text));
             }
-            text = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
+            text = restore(plain);
+
+            // 顯示在預覽區，並讓「複製格式結果」按鈕可直接使用
+            let htmlTable = '<table style="border-collapse: collapse; border: none; width: 100%;">';
+            for (const row of html.split(/\r?\n/)) {
+                htmlTable += '<tr>';
+                for (const cell of row.split('\t')) {
+                    htmlTable += `<td style="border: none; white-space: pre-wrap; mso-number-format: '\\@';">${cell === "" ? "<br>" : cell}</td>`;
+                }
+                htmlTable += '</tr>';
+            }
+            htmlTable += '</table>';
+            document.getElementById('outputHtml').innerHTML = htmlTable;
+            window.lastProcessedPlainText = text;
 
             const isCSV = /\.csv$/i.test(file.name);
             // 原檔有 BOM 就保留；GB18030 來源的 CSV 加上 BOM，讓 Excel 能正確辨識 UTF-8
