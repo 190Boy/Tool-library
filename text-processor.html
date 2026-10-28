@@ -101,6 +101,8 @@
     </div>
 
     <script>
+        // 代碼保護：只保護單行內、不跨引號的 <tag> 與 {0} 佔位符，避免把整段 Lua table 誤判成代碼
+        const PROTECT_REGEX = /<[^<>\n"]*>|\{[^{}\n"]*\}/g;
         let converterS2T = null;
         let replaceDict = {};
         let searchRegex = null;
@@ -241,7 +243,7 @@
             qcStats.charCount = originalInput.length;
 
             let protectedTags = [];
-            let text = originalInput.replace(/<[^>]+>|\{[^}]+\}/g, (match) => {
+            let text = originalInput.replace(PROTECT_REGEX, (match) => {
                 protectedTags.push(match);
                 return `⟪TAG${protectedTags.length - 1}⟫`;
             });
@@ -349,7 +351,7 @@
                                 let hasActualChange = false; 
                                 
                                 let protectedTags = [];
-                                let text = originalText.replace(/<[^>]+>|\{[^}]+\}/g, (match) => {
+                                let text = originalText.replace(PROTECT_REGEX, (match) => {
                                     protectedTags.push(match);
                                     return `⟪TAG${protectedTags.length - 1}⟫`;
                                 });
