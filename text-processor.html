@@ -74,10 +74,10 @@
         </div>
 
         <div class="excel-panel">
-            <h3 style="margin: 0; color: #4facfe;">📊 無損 Excel (xlsx) 批次處理</h3>
+            <h3 style="margin: 0; color: #4facfe;">📊 檔案批次處理（xlsx／csv／txt）</h3>
             <div class="settings-row" style="margin-top: 10px;">
-                <input type="file" id="excelFile" accept=".xlsx">
-                <button class="btn-excel" onclick="processExcel()">🚀 轉換並下載 Excel</button>
+                <input type="file" id="excelFile" accept=".xlsx,.csv,.txt">
+                <button class="btn-excel" onclick="processExcel()">🚀 轉換並下載檔案</button>
             </div>
             <span id="excelStatus" style="color: #a8ff78; font-weight: bold;"></span>
         </div>
@@ -325,6 +325,48 @@
             }
         }
 
+        // 📄 CSV / TXT：整份當純文字處理，保留原本的換行與分隔符號
+        async function processTextFile(file, useS2T, useDict) {
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            const hasBOM = bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF;
+            let encoding = 'UTF-8';
+            let content;
+            try {
+                content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+            } catch (e) {
+                // 不是合法 UTF-8 時，改用 GB18030（相容 GBK／GB2312）解讀簡體檔案
+                content = new TextDecoder('gb18030').decode(bytes);
+                encoding = 'GB18030';
+            }
+            if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
+            qcStats.charCount += content.length;
+
+            let protectedTags = [];
+            let text = content.replace(PROTECT_REGEX, (match) => {
+                protectedTags.push(match);
+                return `⟪TAG${protectedTags.length - 1}⟫`;
+            });
+            if (useS2T && converterS2T) text = converterS2T(text);
+            if (useDict && searchRegex) {
+                text = text.replace(searchRegex, (matchedStr) => {
+                    const replacedWord = replaceDict[matchedStr];
+                    if (matchedStr !== replacedWord) recordReplace(replacedWord);
+                    return replacedWord;
+                });
+            }
+            text = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
+
+            const isCSV = /\.csv$/i.test(file.name);
+            // 原檔有 BOM 就保留；GB18030 來源的 CSV 加上 BOM，讓 Excel 能正確辨識 UTF-8
+            const addBOM = hasBOM || (isCSV && encoding !== 'UTF-8');
+            const blob = new Blob([(addBOM ? '\uFEFF' : '') + text], { type: (isCSV ? 'text/csv' : 'text/plain') + ';charset=utf-8' });
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl; a.download = "天使淨化版_" + file.name;
+            document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(downloadUrl);
+            return encoding;
+        }
+
         async function processExcel() {
             const fileInput = document.getElementById('excelFile');
             const statusBox = document.getElementById('excelStatus');
@@ -337,6 +379,15 @@
 
             try {
                 const file = fileInput.files[0];
+                if (/\.(csv|txt)$/i.test(file.name)) {
+                    const encoding = await processTextFile(file, useS2T, useDict);
+                    statusBox.innerText = encoding === 'UTF-8'
+                        ? "✅ 轉換成功！請查看下載資料夾。"
+                        : `✅ 轉換成功！原檔判斷為 ${encoding}，已輸出為 UTF-8。`;
+                    statusBox.style.color = "#a8ff78";
+                    displayQC();
+                    return;
+                }
                 const arrayBuffer = await file.arrayBuffer();
                 const workbook = new ExcelJS.Workbook();
                 await workbook.xlsx.load(arrayBuffer);
