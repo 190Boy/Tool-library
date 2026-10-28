@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>天使文本處理器 V4.4 - 雙軌剪貼簿版</title>
+    <title>天使文本處理器 V4.5 - 雙軌剪貼簿版</title>
     <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.5/dist/umd/full.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <style>
@@ -47,7 +47,7 @@
 </head>
 <body>
 
-    <h1>👼 天使文本處理器 V4.4</h1>
+    <h1>👼 天使文本處理器 V4.5</h1>
 
     <div class="container">
         <div class="settings-panel">
@@ -71,6 +71,11 @@
                 <span id="dictStatus" class="status-msg">等待連線...</span>
             </div>
             <div id="diagnosticReport"></div>
+            <div class="settings-row" style="background: rgba(0,0,0,0.2); padding: 10px; border-radius: 6px;">
+                <button class="btn-load" onclick="compareTwp()">🔍 比對台灣用語（cn→twp）並匯出</button>
+                <span style="font-size: 0.85em; color: #aaa;">針對最近一次處理的內容，找出台灣用語轉換會改寫、但雲端字庫還沒處理的詞，匯出成字庫格式的 Excel</span>
+            </div>
+            <span id="twpStatus" class="status-msg"></span>
         </div>
 
         <div class="excel-panel">
@@ -103,10 +108,12 @@
     <script>
         // 代碼保護：只保護單行內、不跨引號的 <tag> 與 {0} 佔位符，避免把整段 Lua table 誤判成代碼
         const PROTECT_REGEX = /<[^<>\n"]*>|\{[^{}\n"]*\}/g;
+        const RED_FONT = { color: { argb: 'FFFF0000' }, bold: true };
         let converterS2T = null;
         let replaceDict = {};
         let searchRegex = null;
-        
+        let lastSourceText = '';   // 最近一次處理的原文（供「比對台灣用語」使用）
+
         let qcStats = { charCount: 0, replaceCount: 0, wordFreq: {} };
 
         window.onload = async function() {
@@ -119,11 +126,105 @@
                     converterS2T = OpenCC.Converter({ from: 'cn', to: 'tw' });
                     s2tStatus.innerText = "(✅ 就緒)";
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error('OpenCC 初始化失敗：', e); }
 
             await loadDictionary();
         };
 
+        // ===== 共用小工具 =====
+        function escHtml(str) {
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function downloadBlob(blob, fileName) {
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl; a.download = fileName;
+            document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(downloadUrl);
+        }
+
+        // 簡轉繁（保護 <tag> 與 {0}）
+        function s2tProtected(text, useS2T) {
+            if (!useS2T || !converterS2T) return text;
+            const protectedTags = [];
+            const masked = text.replace(PROTECT_REGEX, (match) => {
+                protectedTags.push(match);
+                return `⟪TAG${protectedTags.length - 1}⟫`;
+            });
+            return converterS2T(masked).replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
+        }
+
+        // ===== 轉換核心：三條流程（純文字／CSV・TXT／Excel）共用 =====
+        // runs：[{ text, font }]，Excel 局部格式的儲存格會有多段，其他情況只有一段
+        // 回傳 runs（替換處 replaced=true、字型加紅加粗）、純文字結果、是否有實質替換
+        function convertRuns(runs, useS2T, useDict) {
+            const conv = runs.map(r => ({ text: s2tProtected(r.text || '', useS2T), font: r.font }));
+            const full = conv.map(r => r.text).join('');
+            const fontAt = [];
+            conv.forEach(r => { for (let i = 0; i < r.text.length; i++) fontAt.push(r.font); });
+
+            // 代碼所在範圍不做字庫替換
+            const protectedRanges = [];
+            for (const m of full.matchAll(PROTECT_REGEX)) protectedRanges.push([m.index, m.index + m[0].length]);
+
+            const out = [];
+            let last = 0, changed = false;
+            // 未替換的片段沿用原本的字型（同字型的字併成一段）
+            const pushSegment = (start, end) => {
+                let i = start;
+                while (i < end) {
+                    let j = i + 1;
+                    while (j < end && fontAt[j] === fontAt[i]) j++;
+                    out.push({ text: full.substring(i, j), font: fontAt[i] });
+                    i = j;
+                }
+            };
+
+            if (useDict && searchRegex) {
+                const re = new RegExp(searchRegex.source, 'g');
+                let m;
+                while ((m = re.exec(full)) !== null) {
+                    const s = m.index, e = s + m[0].length;
+                    if (protectedRanges.some(([a, b]) => s < b && e > a)) continue;
+                    const word = replaceDict[m[0]];
+                    if (word === undefined || word === m[0]) continue;
+                    pushSegment(last, s);
+                    out.push({ text: word, font: Object.assign({}, fontAt[s] || {}, RED_FONT), replaced: true });
+                    recordReplace(word);
+                    changed = true;
+                    last = e;
+                }
+            }
+            pushSegment(last, full.length);
+            return { runs: out, plain: out.map(r => r.text).join(''), changed };
+        }
+
+        function runsToHtml(runs) {
+            return runs.map(r => r.replaced
+                ? `<span style="color: #ff0000; font-weight: bold;">${escHtml(r.text)}</span>`
+                : escHtml(r.text)).join('');
+        }
+
+        // 預覽區：以換行分列、Tab 分欄，貼到 Excel 時能對齊
+        function renderPreview(html, plainText) {
+            let htmlTable = '<table style="border-collapse: collapse; border: none; width: 100%;">';
+            for (const row of html.split(/\r?\n/)) {
+                htmlTable += '<tr>';
+                for (const cell of row.split('\t')) {
+                    htmlTable += `<td style="border: none; white-space: pre-wrap; mso-number-format: '\\@';">${cell === "" ? "<br>" : cell}</td>`;
+                }
+                htmlTable += '</tr>';
+            }
+            htmlTable += '</table>';
+            document.getElementById('outputHtml').innerHTML = htmlTable;
+            window.lastProcessedPlainText = plainText;
+        }
+
+        // ===== QC 報告 =====
         function resetQC() {
             qcStats = { charCount: 0, replaceCount: 0, wordFreq: {} };
             document.getElementById('qcReportPanel').style.display = 'none';
@@ -136,7 +237,7 @@
 
         function displayQC() {
             const sortedWords = Object.entries(qcStats.wordFreq).sort((a, b) => b[1] - a[1]);
-            let topWordsHtml = sortedWords.slice(0, 5).map(item => `「${item[0]}」(${item[1]}次)`).join('、');
+            let topWordsHtml = sortedWords.slice(0, 5).map(item => `「${escHtml(item[0])}」(${item[1]}次)`).join('、');
             if (topWordsHtml === '') topWordsHtml = '無觸發實質替換';
 
             document.getElementById('qcReportContent').innerHTML = `
@@ -147,28 +248,25 @@
             document.getElementById('qcReportPanel').style.display = 'block';
         }
 
+        // ===== 雲端字庫 =====
         function parseCSVRow(str) {
             let result = [], cell = '', inQuotes = false;
             for (let i = 0; i < str.length; i++) {
                 let char = str[i];
-                if (char === '"' && str[i+1] === '"') { cell += '"'; i++; } 
-                else if (char === '"') { inQuotes = !inQuotes; } 
-                else if (char === ',' && !inQuotes) { result.push(cell); cell = ''; } 
+                if (char === '"' && str[i+1] === '"') { cell += '"'; i++; }
+                else if (char === '"') { inQuotes = !inQuotes; }
+                else if (char === ',' && !inQuotes) { result.push(cell); cell = ''; }
                 else { cell += char; }
             }
             result.push(cell);
             return result.map(c => c.trim());
         }
 
-        function escapeRegExp(string) {
-            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        }
-
         async function loadDictionary() {
             const statusLabel = document.getElementById('dictStatus');
             const reportDiv = document.getElementById('diagnosticReport');
             const url = document.getElementById('csvUrlInput').value.trim();
-            
+
             reportDiv.style.display = "none";
             reportDiv.innerHTML = "";
             if (!url) return;
@@ -177,123 +275,110 @@
 
             try {
                 const response = await fetch(url);
+                if (!response.ok) throw new Error(`伺服器回應 HTTP ${response.status}`);
                 const csvData = await response.text();
+                if (/^\s*<(!doctype|html)/i.test(csvData)) {
+                    throw new Error('收到的是網頁而不是 CSV，請確認網址是「發佈到網路」的 CSV 連結');
+                }
                 const lines = csvData.split(/\r?\n/).filter(line => line.trim() !== "");
-                replaceDict = {};
-                let originalCount = 0; 
-                let seenKeys = new Set();
-                let duplicateWarnings = [];
-                let invalidWarnings = [];
+
+                // 先讀進暫存，確認成功後才換掉目前使用中的字庫
+                const explicit = new Map();   // 字庫裡明確寫的搜尋字 → { value, row }
+                const duplicateWarnings = [];
+                const conflictWarnings = [];
+                const invalidWarnings = [];
 
                 for (let i = 1; i < lines.length; i++) {
                     const row = parseCSVRow(lines[i]);
-                    const actualRowNum = i + 1; 
-
-                    if (row.length < 2 || row[0].trim() === "" || row[1].trim() === "") {
-                        invalidWarnings.push(`第 ${actualRowNum} 行：缺少 A 欄或 B 欄資料`);
+                    const rowNum = i + 1;
+                    if (row.length < 2 || row[0] === "" || row[1] === "") {
+                        invalidWarnings.push(`第 ${rowNum} 行：缺少 A 欄或 B 欄資料`);
                         continue;
                     }
-
-                    let originalKey = row[0].trim();
-                    let replaceValue = row[1].trim();
-                    
-                    if (seenKeys.has(originalKey)) {
-                        duplicateWarnings.push(`第 ${actualRowNum} 行：搜尋字「${originalKey}」與前面的資料重複了`);
-                    } else {
-                        seenKeys.add(originalKey);
-                        originalCount++;
+                    const key = row[0], value = row[1];
+                    if (explicit.has(key)) {
+                        const prev = explicit.get(key);
+                        const same = prev.value === value ? '（替換字相同）' : `（替換字不同：「${prev.value}」vs「${value}」，以第 ${rowNum} 行為準）`;
+                        duplicateWarnings.push(`第 ${rowNum} 行：搜尋字「${key}」與第 ${prev.row} 行重複${same}`);
                     }
-
-                    replaceDict[originalKey] = replaceValue;
-                    
-                    if (converterS2T) {
-                        let tradKey = converterS2T(originalKey);
-                        if (tradKey !== originalKey) replaceDict[tradKey] = replaceValue;
-                    }
+                    explicit.set(key, { value, row: rowNum });
                 }
 
-                const sortedWords = Object.keys(replaceDict).sort((a, b) => b.length - a.length);
-                if (sortedWords.length > 0) searchRegex = new RegExp(sortedWords.map(escapeRegExp).join('|'), 'g');
+                const newDict = {};
+                explicit.forEach((info, key) => { newDict[key] = info.value; });
 
-                statusLabel.innerText = `✅ 同步成功！(有效資料共 ${originalCount} 筆)`;
-                statusLabel.style.color = "#a8ff78";
+                // 自動補上繁體版搜尋字；字庫裡明確寫的條目優先，不會被自動產生的蓋掉
+                const autoFrom = new Map();   // 自動產生的繁體 key → 來源 { key, row }
+                if (converterS2T) {
+                    explicit.forEach((info, key) => {
+                        const tradKey = converterS2T(key);
+                        if (tradKey === key) return;
+                        if (explicit.has(tradKey)) {
+                            const other = explicit.get(tradKey);
+                            if (other.value !== info.value) {
+                                conflictWarnings.push(`第 ${info.row} 行「${key}」轉繁後是「${tradKey}」，與第 ${other.row} 行衝突（「${info.value}」vs「${other.value}」），繁體文字會以第 ${other.row} 行為準`);
+                            }
+                            return;
+                        }
+                        if (autoFrom.has(tradKey)) {
+                            const first = autoFrom.get(tradKey);
+                            if (newDict[tradKey] !== info.value) {
+                                conflictWarnings.push(`第 ${first.row} 行「${first.key}」與第 ${info.row} 行「${key}」轉繁後都是「${tradKey}」，但替換字不同（「${newDict[tradKey]}」vs「${info.value}」），以第 ${first.row} 行為準`);
+                            }
+                            return;
+                        }
+                        autoFrom.set(tradKey, { key, row: info.row });
+                        newDict[tradKey] = info.value;
+                    });
+                }
 
-                if (duplicateWarnings.length > 0 || invalidWarnings.length > 0) {
+                const sortedWords = Object.keys(newDict).sort((a, b) => b.length - a.length);
+                replaceDict = newDict;
+                searchRegex = sortedWords.length > 0 ? new RegExp(sortedWords.map(escapeRegExp).join('|'), 'g') : null;
+
+                const problemCount = duplicateWarnings.length + conflictWarnings.length;
+                if (explicit.size === 0) {
+                    statusLabel.innerText = "⚠️ 已連線，但字庫沒有任何有效資料（本次不會進行字庫替換）";
+                    statusLabel.style.color = "#f6d365";
+                } else if (problemCount > 0) {
+                    statusLabel.innerText = `⚠️ 同步成功（有效資料 ${explicit.size} 筆），但發現 ${problemCount} 處重複／衝突，請看下方報告`;
+                    statusLabel.style.color = "#f6d365";
+                } else {
+                    statusLabel.innerText = `✅ 同步成功！(有效資料共 ${explicit.size} 筆，無重複)`;
+                    statusLabel.style.color = "#a8ff78";
+                }
+
+                if (problemCount > 0 || invalidWarnings.length > 0) {
                     reportDiv.style.display = "block";
-                    let reportHtml = `<strong>🕵️ 系統診斷報告：</strong><br>扣掉以下問題後，正好是 ${originalCount} 筆！<ul>`;
-                    duplicateWarnings.forEach(msg => reportHtml += `<li>⚠️ ${msg}</li>`);
-                    invalidWarnings.forEach(msg => reportHtml += `<li>❌ ${msg}</li>`);
+                    let reportHtml = `<strong>🕵️ 系統診斷報告：</strong><ul>`;
+                    duplicateWarnings.forEach(msg => reportHtml += `<li>⚠️ ${escHtml(msg)}</li>`);
+                    conflictWarnings.forEach(msg => reportHtml += `<li>🔀 ${escHtml(msg)}</li>`);
+                    invalidWarnings.forEach(msg => reportHtml += `<li>❌ ${escHtml(msg)}</li>`);
                     reportHtml += "</ul>";
                     reportDiv.innerHTML = reportHtml;
                 }
             } catch (error) {
-                statusLabel.innerText = "❌ 載入失敗"; statusLabel.style.color = "#ff4444";
+                console.error('字庫載入失敗：', error);
+                const keep = searchRegex ? '目前沿用上次成功載入的字庫' : '目前沒有可用的字庫';
+                statusLabel.innerText = `❌ 載入失敗：${error.message}（${keep}）`;
+                statusLabel.style.color = "#ff4444";
             }
         }
 
+        // ===== 純文字快速處理 =====
         function processText() {
             resetQC();
-            let originalInput = document.getElementById('sourceText').value;
+            const originalInput = document.getElementById('sourceText').value;
             const useS2T = document.getElementById('chkS2T').checked;
             const useDict = document.getElementById('chkDict').checked;
             const outputDiv = document.getElementById('outputHtml');
 
             if (!originalInput.trim()) { outputDiv.innerHTML = "<span style='color:red;'>請先貼上文字！</span>"; return; }
-            
+
             qcStats.charCount = originalInput.length;
-
-            let protectedTags = [];
-            let text = originalInput.replace(PROTECT_REGEX, (match) => {
-                protectedTags.push(match);
-                return `⟪TAG${protectedTags.length - 1}⟫`;
-            });
-
-            if (useS2T && converterS2T) text = converterS2T(text);
-            
-            // 🌟 將「未套用 HTML 標籤」的純文字版單獨保存
-            let plainTextVersion = text;
-
-            if (useDict && searchRegex) {
-                text = text.replace(searchRegex, (matchedStr) => {
-                    const replacedWord = replaceDict[matchedStr];
-                    if (matchedStr === replacedWord) return matchedStr; 
-                    recordReplace(replacedWord); 
-                    return `<span style="color: #ff0000; font-weight: bold;">${replacedWord}</span>`;
-                });
-                
-                // 純文字版本也要執行取代，但不加 span 標籤
-                plainTextVersion = plainTextVersion.replace(searchRegex, (matchedStr) => {
-                    return replaceDict[matchedStr];
-                });
-            }
-            
-            text = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => {
-                let originalTag = protectedTags[parseInt(p1)];
-                return originalTag.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            });
-            
-            // 將純文字版本的防護罩也解開
-            plainTextVersion = plainTextVersion.replace(/⟪TAG(\d+)⟫/g, (match, p1) => {
-                return protectedTags[parseInt(p1)];
-            });
-            
-            // 🌟 將最完美的純淨文本存入全域變數，供剪貼簿提取
-            window.lastProcessedPlainText = plainTextVersion;
-            
-            let htmlTable = '<table style="border-collapse: collapse; border: none; width: 100%;">';
-            let rows = text.split('\n');
-            for (let row of rows) {
-                htmlTable += '<tr>';
-                let cells = row.split('\t');
-                for (let cell of cells) {
-                    let cellContent = cell === "" ? "<br>" : cell;
-                    htmlTable += `<td style="border: none; white-space: pre-wrap; mso-number-format: '\\@';">${cellContent}</td>`;
-                }
-                htmlTable += '</tr>';
-            }
-            htmlTable += '</table>';
-            
-            outputDiv.innerHTML = htmlTable;
+            lastSourceText = originalInput;
+            const result = convertRuns([{ text: originalInput }], useS2T, useDict);
+            renderPreview(runsToHtml(result.runs), result.plain);
             displayQC();
         }
 
@@ -305,26 +390,23 @@
             }
 
             const rawHtml = outputDiv.innerHTML;
-            // 🌟 提取我們剛剛精心保存的完美純文字
             const cleanPlainText = window.lastProcessedPlainText || outputDiv.innerText;
-            
+
             try {
                 // 雙軌寫入：網頁格式 + 純文字格式
-                const blobHtml = new Blob([rawHtml], { type: "text/html" });
-                const blobText = new Blob([cleanPlainText], { type: "text/plain" });
                 const clipboardItem = new ClipboardItem({
-                    "text/html": blobHtml,
-                    "text/plain": blobText
+                    "text/html": new Blob([rawHtml], { type: "text/html" }),
+                    "text/plain": new Blob([cleanPlainText], { type: "text/plain" })
                 });
-                
                 await navigator.clipboard.write([clipboardItem]);
                 alert("✅ 複製成功！現在不管是直接貼上(保留紅字)，還是「只貼上值」(完美對齊)，都能完美支援囉！");
-                
             } catch (error) {
+                console.error('複製失敗：', error);
                 alert("❌ 瀏覽器可能不支援進階剪貼簿功能，請確認是否有開啟相關權限。");
             }
         }
 
+        // ===== 檔案批次處理 =====
         // 📄 CSV / TXT：整份當純文字處理，保留原本的換行與分隔符號
         async function processTextFile(file, useS2T, useDict) {
             const bytes = new Uint8Array(await file.arrayBuffer());
@@ -340,63 +422,54 @@
             }
             if (content.charCodeAt(0) === 0xFEFF) content = content.slice(1);
             qcStats.charCount += content.length;
+            lastSourceText = content;
 
-            let protectedTags = [];
-            let text = content.replace(PROTECT_REGEX, (match) => {
-                protectedTags.push(match);
-                return `⟪TAG${protectedTags.length - 1}⟫`;
-            });
-            if (useS2T && converterS2T) text = converterS2T(text);
-
-            // 同時產生「純文字」（下載用）與「紅字標示 HTML」（預覽用）
-            const restore = (str) => str.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
-            const esc = (str) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            let plain = '', html = '';
-            if (useDict && searchRegex) {
-                const localRegex = new RegExp(searchRegex.source, 'g');
-                let lastIndex = 0, m;
-                while ((m = localRegex.exec(text)) !== null) {
-                    const before = text.substring(lastIndex, m.index);
-                    plain += before; html += esc(restore(before));
-                    const replacedWord = replaceDict[m[0]];
-                    plain += replacedWord;
-                    if (m[0] !== replacedWord) {
-                        recordReplace(replacedWord);
-                        html += `<span style="color: #ff0000; font-weight: bold;">${esc(replacedWord)}</span>`;
-                    } else {
-                        html += esc(replacedWord);
-                    }
-                    lastIndex = localRegex.lastIndex;
-                }
-                const rest = text.substring(lastIndex);
-                plain += rest; html += esc(restore(rest));
-            } else {
-                plain = text; html = esc(restore(text));
-            }
-            text = restore(plain);
-
-            // 顯示在預覽區，並讓「複製格式結果」按鈕可直接使用
-            let htmlTable = '<table style="border-collapse: collapse; border: none; width: 100%;">';
-            for (const row of html.split(/\r?\n/)) {
-                htmlTable += '<tr>';
-                for (const cell of row.split('\t')) {
-                    htmlTable += `<td style="border: none; white-space: pre-wrap; mso-number-format: '\\@';">${cell === "" ? "<br>" : cell}</td>`;
-                }
-                htmlTable += '</tr>';
-            }
-            htmlTable += '</table>';
-            document.getElementById('outputHtml').innerHTML = htmlTable;
-            window.lastProcessedPlainText = text;
+            const result = convertRuns([{ text: content }], useS2T, useDict);
+            renderPreview(runsToHtml(result.runs), result.plain);
 
             const isCSV = /\.csv$/i.test(file.name);
             // 原檔有 BOM 就保留；GB18030 來源的 CSV 加上 BOM，讓 Excel 能正確辨識 UTF-8
             const addBOM = hasBOM || (isCSV && encoding !== 'UTF-8');
-            const blob = new Blob([(addBOM ? '\uFEFF' : '') + text], { type: (isCSV ? 'text/csv' : 'text/plain') + ';charset=utf-8' });
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = downloadUrl; a.download = "天使淨化版_" + file.name;
-            document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(downloadUrl);
+            const blob = new Blob([(addBOM ? '﻿' : '') + result.plain], { type: (isCSV ? 'text/csv' : 'text/plain') + ';charset=utf-8' });
+            downloadBlob(blob, "天使淨化版_" + file.name);
             return encoding;
+        }
+
+        // 📊 Excel：純文字儲存格與「局部格式」儲存格都會處理，原本的字型格式會保留
+        async function processExcelFile(file, useS2T, useDict) {
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.load(await file.arrayBuffer());
+            const sourceTexts = [];
+
+            workbook.eachSheet((worksheet) => {
+                worksheet.eachRow((row) => {
+                    row.eachCell((cell) => {
+                        let runs;
+                        const isRich = cell.type === ExcelJS.ValueType.RichText;
+                        if (cell.type === ExcelJS.ValueType.String) {
+                            runs = [{ text: cell.value }];
+                        } else if (isRich && cell.value && Array.isArray(cell.value.richText)) {
+                            runs = cell.value.richText.map(r => ({ text: r.text || '', font: r.font }));
+                        } else {
+                            return;
+                        }
+                        const original = runs.map(r => r.text).join('');
+                        qcStats.charCount += original.length;
+                        sourceTexts.push(original);
+
+                        const result = convertRuns(runs, useS2T, useDict);
+                        if (isRich || result.changed) {
+                            cell.value = { richText: result.runs.map(r => r.font ? { text: r.text, font: r.font } : { text: r.text }) };
+                        } else {
+                            cell.value = result.plain;
+                        }
+                    });
+                });
+            });
+
+            lastSourceText = sourceTexts.join('\n');
+            const buffer = await workbook.xlsx.writeBuffer();
+            downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "天使淨化版_" + file.name);
         }
 
         async function processExcel() {
@@ -405,98 +478,136 @@
             const useS2T = document.getElementById('chkS2T').checked;
             const useDict = document.getElementById('chkDict').checked;
 
-            if (fileInput.files.length === 0) return;
+            if (fileInput.files.length === 0) {
+                statusBox.innerText = "⚠️ 請先選擇要轉換的檔案（xlsx／csv／txt）";
+                statusBox.style.color = "#f6d365";
+                return;
+            }
+            const file = fileInput.files[0];
+            if (!/\.(xlsx|csv|txt)$/i.test(file.name)) {
+                statusBox.innerText = "⚠️ 只支援 xlsx、csv、txt 檔案";
+                statusBox.style.color = "#f6d365";
+                return;
+            }
             statusBox.innerText = "⏳ 正在啟動天使引擎讀取檔案..."; statusBox.style.color = "#f6d365";
             resetQC();
 
             try {
-                const file = fileInput.files[0];
                 if (/\.(csv|txt)$/i.test(file.name)) {
                     const encoding = await processTextFile(file, useS2T, useDict);
                     statusBox.innerText = encoding === 'UTF-8'
-                        ? "✅ 轉換成功！請查看下載資料夾。"
-                        : `✅ 轉換成功！原檔判斷為 ${encoding}，已輸出為 UTF-8。`;
+                        ? "✅ 轉換成功！請查看下載資料夾，結果也已顯示在預覽區。"
+                        : `✅ 轉換成功！原檔判斷為 ${encoding}，已輸出為 UTF-8。結果也已顯示在預覽區。`;
+                } else {
+                    await processExcelFile(file, useS2T, useDict);
+                    statusBox.innerText = "✅ 轉換成功！請查看下載資料夾。";
+                }
+                statusBox.style.color = "#a8ff78";
+                displayQC();
+            } catch (error) {
+                console.error('檔案處理失敗：', error);
+                statusBox.innerText = `❌ 處理發生錯誤：${error.message}`;
+                statusBox.style.color = "#ff4444";
+            }
+        }
+
+        // ===== 比對台灣用語（cn → twp） =====
+        // 找出「台灣用語轉換會改寫、但雲端字庫還沒處理」的詞，匯出成字庫格式的 Excel
+        let twpTools = null;
+        function getTwpTools() {
+            if (twpTools) return twpTools;
+            if (typeof OpenCC === 'undefined' || !OpenCC.Locale || !OpenCC.Locale.to.twp) return null;
+            const phraseKeys = new Set();
+            OpenCC.Locale.to.twp.slice(1).join('|').split('|').forEach(pair => {
+                const key = pair.split(' ')[0];
+                if (key) phraseKeys.add(key);
+            });
+            const keys = [...phraseKeys].sort((a, b) => b.length - a.length);
+            twpTools = {
+                cnToStd: OpenCC.Converter({ from: 'cn', to: 't' }),
+                stdToTwp: OpenCC.Converter({ from: 't', to: 'twp' }),
+                phraseRegex: new RegExp(keys.map(escapeRegExp).join('|'), 'g')
+            };
+            return twpTools;
+        }
+
+        async function compareTwp() {
+            const statusBox = document.getElementById('twpStatus');
+            const tools = getTwpTools();
+            if (!tools || !converterS2T) {
+                statusBox.innerText = "❌ OpenCC 尚未載入，無法比對";
+                statusBox.style.color = "#ff4444";
+                return;
+            }
+            if (!lastSourceText.trim()) {
+                statusBox.innerText = "⚠️ 請先處理一段文字或一個檔案，再進行比對";
+                statusBox.style.color = "#f6d365";
+                return;
+            }
+
+            try {
+                // 代碼換成等長的佔位，避免影響位置對應
+                const masked = lastSourceText.replace(PROTECT_REGEX, (m) => '\u0001'.repeat(m.length));
+                const std = tools.cnToStd(masked);
+                const tw = converterS2T(masked);
+                if (std.length !== tw.length) throw new Error('轉換後長度不一致，無法比對');
+                const sameLength = masked.length === std.length;
+
+                // 雲端字庫已涵蓋的位置（包含「替換字＝搜尋字」的保留條目）
+                const covered = [];
+                if (searchRegex) {
+                    for (const m of tw.matchAll(new RegExp(searchRegex.source, 'g'))) covered.push([m.index, m.index + m[0].length]);
+                }
+
+                const found = new Map();
+                for (const m of std.matchAll(tools.phraseRegex)) {
+                    const s = m.index, e = s + m[0].length;
+                    const twForm = tw.substring(s, e);
+                    const twpForm = tools.stdToTwp(m[0]);
+                    if (twpForm === twForm) continue;
+                    if (covered.some(([a, b]) => s < b && e > a)) continue;
+                    if (!found.has(twForm)) {
+                        const lineStart = tw.lastIndexOf('\n', s) + 1;
+                        let lineEnd = tw.indexOf('\n', e); if (lineEnd === -1) lineEnd = tw.length;
+                        const from = Math.max(lineStart, s - 15), to = Math.min(lineEnd, e + 15);
+                        found.set(twForm, {
+                            suggest: twpForm,
+                            simplified: sameLength ? masked.substring(s, e) : '',
+                            count: 0,
+                            example: tw.substring(from, to).replace(/\u0001+/g, '…').trim()
+                        });
+                    }
+                    found.get(twForm).count++;
+                }
+
+                if (found.size === 0) {
+                    statusBox.innerText = "✅ 沒有發現雲端字庫尚未涵蓋的台灣用語差異";
                     statusBox.style.color = "#a8ff78";
-                    displayQC();
                     return;
                 }
-                const arrayBuffer = await file.arrayBuffer();
+
+                const items = [...found.entries()].sort((a, b) => b[1].count - a[1].count);
                 const workbook = new ExcelJS.Workbook();
-                await workbook.xlsx.load(arrayBuffer);
-
-                workbook.eachSheet((worksheet) => {
-                    worksheet.eachRow((row) => {
-                        row.eachCell((cell) => {
-                            if (cell.type === ExcelJS.ValueType.String) {
-                                let originalText = cell.value;
-                                qcStats.charCount += originalText.length;
-                                let processed = false;
-                                let hasActualChange = false; 
-                                
-                                let protectedTags = [];
-                                let text = originalText.replace(PROTECT_REGEX, (match) => {
-                                    protectedTags.push(match);
-                                    return `⟪TAG${protectedTags.length - 1}⟫`;
-                                });
-
-                                if (useS2T && converterS2T) text = converterS2T(text);
-
-                                if (useDict && searchRegex) {
-                                    let fragments = [];
-                                    let lastIndex = 0;
-                                    let localRegex = new RegExp(searchRegex.source, 'g');
-                                    let match;
-                                    
-                                    while ((match = localRegex.exec(text)) !== null) {
-                                        processed = true;
-                                        if (match.index > lastIndex) fragments.push({ text: text.substring(lastIndex, match.index) });
-                                        
-                                        const replacedWord = replaceDict[match[0]];
-                                        
-                                        if (match[0] === replacedWord) {
-                                            fragments.push({ text: match[0] }); 
-                                        } else {
-                                            hasActualChange = true;
-                                            recordReplace(replacedWord); 
-                                            fragments.push({ text: replacedWord, font: { color: { argb: 'FFFF0000' }, bold: true } });
-                                        }
-                                        
-                                        lastIndex = localRegex.lastIndex;
-                                    }
-                                    if (lastIndex < text.length) fragments.push({ text: text.substring(lastIndex) });
-                                    
-                                    fragments.forEach(frag => {
-                                        if (frag.text.includes('⟪TAG')) {
-                                            frag.text = frag.text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
-                                        }
-                                    });
-
-                                    if (processed && hasActualChange) {
-                                        cell.value = { richText: fragments };
-                                    } else {
-                                        let restoredText = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
-                                        cell.value = restoredText;
-                                    }
-                                } else { 
-                                    let restoredText = text.replace(/⟪TAG(\d+)⟫/g, (match, p1) => protectedTags[parseInt(p1)]);
-                                    cell.value = restoredText; 
-                                }
-                            }
-                        });
-                    });
-                });
-
+                const sheet = workbook.addWorksheet('待新增字庫');
+                sheet.columns = [
+                    { header: '搜尋字', width: 16 },
+                    { header: '替換字（台灣用語建議）', width: 22 },
+                    { header: '簡體原文', width: 14 },
+                    { header: '出現次數', width: 10 },
+                    { header: '例句', width: 60 }
+                ];
+                items.forEach(([twForm, info]) => sheet.addRow([twForm, info.suggest, info.simplified, info.count, info.example]));
+                sheet.getRow(1).font = { bold: true };
                 const buffer = await workbook.xlsx.writeBuffer();
-                const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-                const downloadUrl = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = downloadUrl; a.download = "天使淨化版_" + file.name;
-                document.body.appendChild(a); a.click(); a.remove(); window.URL.revokeObjectURL(downloadUrl);
-                statusBox.innerText = "✅ 轉換成功！請查看下載資料夾。"; statusBox.style.color = "#a8ff78";
-                
-                displayQC(); 
+                downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), "台灣用語比對_待新增字庫.xlsx");
+
+                const total = items.reduce((sum, [, info]) => sum + info.count, 0);
+                statusBox.innerText = `✅ 找到 ${items.length} 個詞（共 ${total} 處），已匯出 Excel，請人工確認後再更新到雲端字庫`;
+                statusBox.style.color = "#a8ff78";
             } catch (error) {
-                statusBox.innerText = "❌ 處理發生錯誤"; statusBox.style.color = "#ff4444";
+                console.error('台灣用語比對失敗：', error);
+                statusBox.innerText = `❌ 比對失敗：${error.message}`;
+                statusBox.style.color = "#ff4444";
             }
         }
     </script>
